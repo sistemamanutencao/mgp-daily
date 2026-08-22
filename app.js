@@ -1,9 +1,16 @@
-const APP_VERSION = '0.2.2';
+const APP_VERSION = '0.2.3';
 const AUTHORIZED_UID = 'r7phpAeSu2TKzettmItVRC6qZ6j2';
 const DB_NAME = 'mgp-daily-db';
 const DB_VERSION = 2;
 const FIREBASE_VERSION = '12.17.1';
-const FIREBASE_CONFIG_KEY = 'mgpDailyFirebaseConfig';
+const FIREBASE_CONFIG = {
+  apiKey: 'AIzaSyD641XWCUceDF02Dv1TSlumZV2s4XB81ms',
+  authDomain: 'mgp-daily.firebaseapp.com',
+  projectId: 'mgp-daily',
+  storageBucket: 'mgp-daily.firebasestorage.app',
+  messagingSenderId: '851586835666',
+  appId: '1:851586835666:web:4b2c7c2c7e4e5a3a35790b',
+};
 const VERIFIED_UID_KEY = 'mgpDailyVerifiedUid';
 
 const priorityMeta = {
@@ -185,10 +192,7 @@ function syncBadge() {
   return `<button class="cloud-badge ${meta[1]}" id="accountBtn" title="${esc(state.syncMessage)}"><span class="cloud-dot"></span>${meta[0]}</button>`;
 }
 
-function cloudSetupNotice() {
-  if (state.firebaseConfigured) return '';
-  return `<section class="cloud-setup-card"><div><span class="eyebrow">BACKUP E SINCRONIZAÇÃO</span><strong>Proteja seus dados na nuvem</strong><p>Configure o Firebase para acessar a mesma manutenção no computador e no celular e recuperar seus dados mesmo após limpar o navegador.</p></div><button class="primary-btn" id="setupCloudBtn">Configurar agora</button></section>`;
-}
+function cloudSetupNotice() { return ''; }
 
 function card(task, { deleteButton = false } = {}) {
   const pm = priorityMeta[task.priority];
@@ -255,14 +259,10 @@ function historyView() {
 
 
 function accessGateView() {
-  const config = getFirebaseConfig();
-  const configured = Boolean(config?.apiKey && config?.projectId && config?.appId);
-  const title = configured ? 'Acesso restrito' : 'Configuração inicial';
-  const text = configured
-    ? 'Entre com a única conta autorizada para acessar suas tarefas e materiais. Depois do primeiro login, o app continua disponível offline neste dispositivo.'
-    : 'Configure o Firebase. O MGP Daily já está bloqueado para a conta pessoal autorizada.';
-  const buttonId = configured ? 'accountBtn' : 'setupCloudBtn';
-  const buttonText = configured ? 'Entrar' : 'Configurar Firebase';
+  const title = 'Acesso restrito';
+  const text = 'Entre com a única conta autorizada para acessar suas tarefas e materiais. Depois do primeiro login, o app continua disponível offline neste dispositivo.';
+  const buttonId = 'accountBtn';
+  const buttonText = 'Entrar';
   return `<div class="auth-gate"><div class="auth-gate-card"><div class="auth-mark">M</div><span class="eyebrow">MGP DAILY <span class="version">v${APP_VERSION}</span></span><h1>${title}</h1><p>${text}</p><button class="primary-btn auth-gate-btn" id="${buttonId}">${buttonText}</button><small>Uso pessoal · acesso por UID do Firebase</small></div></div>`;
 }
 
@@ -288,7 +288,6 @@ function bind() {
   document.querySelectorAll('[data-tab]').forEach((button) => (button.onclick = () => { state.tab = button.dataset.tab; render(); }));
   document.querySelector('#newTask')?.addEventListener('click', () => taskModal());
   document.querySelector('#accountBtn')?.addEventListener('click', accountModal);
-  document.querySelector('#setupCloudBtn')?.addEventListener('click', accountModal);
   document.querySelectorAll('[data-edit]').forEach((button) => (button.onclick = () => taskModal(state.tasks.find((t) => t.id === button.dataset.edit))));
   document.querySelectorAll('[data-start]').forEach((button) => (button.onclick = () => startTask(button.dataset.start)));
   document.querySelectorAll('[data-interrupt]').forEach((button) => (button.onclick = () => interruptTask(button.dataset.interrupt)));
@@ -423,77 +422,28 @@ function importBackup() {
 }
 
 function getFirebaseConfig() {
-  try {
-    const raw = localStorage.getItem(FIREBASE_CONFIG_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-function saveFirebaseConfig(config) {
-  localStorage.setItem(FIREBASE_CONFIG_KEY, JSON.stringify(config));
-  state.firebaseConfigured = true;
-}
-
-function firebaseConfigForm(current = {}) {
-  return `<div class="modal-head"><div><span class="eyebrow">FIREBASE · USO PESSOAL</span><h2>Conectar sua conta</h2></div><button type="button" class="icon-btn subtle close">×</button></div>
-    <div class="cloud-explainer"><strong>Acesso pessoal bloqueado</strong><span>Esta versão aceita somente a conta Firebase autorizada na compilação do aplicativo.</span></div>
-    <label>API Key<input name="apiKey" required value="${esc(current.apiKey || '')}" placeholder="AIza..."></label>
-    <label>Auth Domain<input name="authDomain" required value="${esc(current.authDomain || '')}" placeholder="seu-projeto.firebaseapp.com"></label>
-    <label>Project ID<input name="projectId" required value="${esc(current.projectId || '')}" placeholder="seu-projeto"></label>
-    <label>App ID<input name="appId" required value="${esc(current.appId || '')}" placeholder="1:123:web:abc..."></label>
-    <label>Messaging Sender ID<input name="messagingSenderId" value="${esc(current.messagingSenderId || '')}" placeholder="123456789"></label>
-    <label>Storage Bucket<input name="storageBucket" value="${esc(current.storageBucket || '')}" placeholder="seu-projeto.firebasestorage.app"></label>
-    <div class="modal-actions"><button type="button" class="secondary-btn close">Cancelar</button><button class="primary-btn">Salvar configuração</button></div>`;
+  return FIREBASE_CONFIG;
 }
 
 function loginForm() {
   return `<div class="modal-head"><div><span class="eyebrow">ACESSO PESSOAL</span><h2>Entrar no MGP Daily</h2></div><button type="button" class="icon-btn subtle close">×</button></div>
-    <div class="cloud-explainer"><strong>Somente sua conta é aceita</strong><span>Não existe cadastro público neste aplicativo. A conta autorizada é definida pelo UID configurado no Firebase.</span></div>
+    <div class="cloud-explainer"><strong>Somente sua conta é aceita</strong><span>O Firebase e o UID autorizado já estão configurados nesta versão.</span></div>
     <label>E-mail<input name="email" type="email" required autocomplete="email" placeholder="seu@email.com"></label>
     <label>Senha<input name="password" type="password" required minlength="6" autocomplete="current-password" placeholder="Mínimo 6 caracteres"></label>
-    <div class="modal-actions stacked"><button type="submit" class="primary-btn" data-auth-action="login">Entrar</button><button type="button" class="text-btn" id="editFirebaseBtn">Alterar configuração do Firebase</button></div>`;
+    <div class="modal-actions stacked"><button type="submit" class="primary-btn" data-auth-action="login">Entrar</button></div>`;
 }
 
 function signedInView() {
   return `<div class="modal-head"><div><span class="eyebrow">CONTA</span><h2>Nuvem conectada</h2></div><button type="button" class="icon-btn subtle close">×</button></div>
     <div class="account-card"><div class="account-avatar">${esc((state.user?.email || '?')[0].toUpperCase())}</div><div><strong>${esc(state.user?.email || '')}</strong><span>${esc(state.syncMessage)}</span></div></div>
     <div class="sync-detail"><span>Estado atual</span><strong>${navigator.onLine ? (state.syncStatus === 'synced' ? 'Sincronizado' : 'Aguardando sincronização') : 'Offline — alterações ficam no dispositivo'}</strong></div>
-    <div class="modal-actions stacked"><button type="button" class="primary-btn" id="syncNowBtn">Sincronizar agora</button><button type="button" class="secondary-btn" id="logoutBtn">Sair da conta</button><button type="button" class="text-btn" id="editFirebaseBtn">Configuração do Firebase</button></div>`;
+    <div class="modal-actions stacked"><button type="button" class="primary-btn" id="syncNowBtn">Sincronizar agora</button><button type="button" class="secondary-btn" id="logoutBtn">Sair da conta</button></div>`;
 }
 
 function accountModal() {
-  const config = getFirebaseConfig();
-  const el = modalShell(`<form class="modal account-modal">${!config ? firebaseConfigForm() : state.user ? signedInView() : loginForm()}</form>`);
+  const el = modalShell(`<form class="modal account-modal">${state.user ? signedInView() : loginForm()}</form>`);
   const form = el.querySelector('form');
   el.querySelectorAll('.close').forEach((button) => (button.onclick = () => el.remove()));
-
-  if (!config) {
-    form.onsubmit = (event) => {
-      event.preventDefault();
-      const data = new FormData(form);
-      const firebaseConfig = {
-        apiKey: data.get('apiKey').trim(),
-        authDomain: data.get('authDomain').trim(),
-        projectId: data.get('projectId').trim(),
-        appId: data.get('appId').trim(),
-        messagingSenderId: data.get('messagingSenderId').trim(),
-        storageBucket: data.get('storageBucket').trim(),
-      };
-      saveFirebaseConfig(firebaseConfig);
-      el.remove();
-      toast('Firebase configurado. Conectando...');
-      initFirebase();
-      render();
-    };
-    return;
-  }
-
-  el.querySelector('#editFirebaseBtn')?.addEventListener('click', () => {
-    el.remove();
-    firebaseConfigEditModal(config);
-  });
 
   if (state.user) {
     el.querySelector('#syncNowBtn')?.addEventListener('click', async () => {
@@ -528,26 +478,6 @@ function accountModal() {
     event.preventDefault();
     const data = new FormData(form);
     await authWithEmail(data.get('email').trim(), data.get('password'), false, el);
-  };
-}
-
-function firebaseConfigEditModal(config) {
-  const el = modalShell(`<form class="modal account-modal">${firebaseConfigForm(config)}</form>`);
-  const form = el.querySelector('form');
-  el.querySelectorAll('.close').forEach((button) => (button.onclick = () => el.remove()));
-  form.onsubmit = (event) => {
-    event.preventDefault();
-    const data = new FormData(form);
-    saveFirebaseConfig({
-      apiKey: data.get('apiKey').trim(),
-      authDomain: data.get('authDomain').trim(),
-      projectId: data.get('projectId').trim(),
-      appId: data.get('appId').trim(),
-      messagingSenderId: data.get('messagingSenderId').trim(),
-      storageBucket: data.get('storageBucket').trim(),
-    });
-    alert('Configuração salva. O aplicativo será recarregado para aplicar a mudança.');
-    location.reload();
   };
 }
 

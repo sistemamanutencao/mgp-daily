@@ -1,29 +1,15 @@
-MGP DAILY v0.2.2 — CHECKLIST FIREBASE (USO PESSOAL)
+MGP DAILY v0.2.3 — CHECKLIST FIREBASE
 
-[ ] Criar/selecionar projeto Firebase
-[ ] Criar App Web
-[ ] Authentication > Sign-in method > Email/Password > Ativar
-[ ] Authentication > Users > Add user > criar APENAS sua conta
-[ ] Copiar o UID da sua conta em Authentication > Users
-[x] UID pessoal já incorporado em firestore.rules e no aplicativo
+[x] Projeto Firebase criado
+[x] App Web registrado
+[x] Firebase Web incorporado ao aplicativo
+[x] Authentication E-mail/Senha ativado
+[x] Conta pessoal criada
+[x] UID pessoal incorporado no app e nas regras
 [ ] Firestore Database > Create database
-[ ] Firestore > Rules > colar o conteúdo de firestore.rules > Publish
+[ ] Firestore > Rules > colar firestore.rules > Publish
 [ ] Authentication > Settings > Authorized domains > adicionar domínio publicado
-[ ] Publicar os arquivos da PWA
-[ ] Abrir MGP Daily > Configurar Firebase
-[ ] Informar o mesmo UID autorizado no campo "UID autorizado"
-[ ] Copiar apiKey
-[ ] Copiar authDomain
-[ ] Copiar projectId
-[ ] Copiar appId
-[ ] Copiar messagingSenderId
-[ ] Copiar storageBucket
-[ ] Entrar com a conta criada manualmente no Firebase
-[ ] Confirmar indicador "Nuvem OK"
-[ ] Testar no segundo dispositivo usando a MESMA conta
-[ ] Testar alteração offline e sincronização ao reconectar
-
-IMPORTANTE
-- Não existe cadastro de novos usuários dentro do MGP Daily.
-- Qualquer conta cujo UID seja diferente do UID configurado será recusada pelo app.
-- As regras do Firestore também bloqueiam qualquer UID diferente do autorizado.
+[ ] Publicar a PWA
+[ ] Entrar com e-mail e senha
+[ ] Confirmar indicador Nuvem OK
+[ ] Testar offline e sincronização
