@@ -1,0 +1,20 @@
+MGP DAILY v0.2.0 — CHECKLIST FIREBASE
+
+[ ] Criar/selecionar projeto Firebase
+[ ] Criar App Web
+[ ] Copiar apiKey
+[ ] Copiar authDomain
+[ ] Copiar projectId
+[ ] Copiar appId
+[ ] Copiar messagingSenderId
+[ ] Copiar storageBucket
+[ ] Authentication > Email/Password > Ativar
+[ ] Authentication > Settings > Authorized domains > adicionar domínio publicado
+[ ] Firestore Database > Create database
+[ ] Firestore > Rules > colar o conteúdo de firestore.rules > Publish
+[ ] Publicar os arquivos da PWA
+[ ] Abrir MGP Daily > Nuvem > Configurar Firebase
+[ ] Criar conta ou entrar
+[ ] Confirmar indicador "Nuvem OK"
+[ ] Criar tarefa no dispositivo A e confirmar no dispositivo B
+[ ] Testar alteração offline e sincronização ao reconectar
