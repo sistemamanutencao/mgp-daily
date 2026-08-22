@@ -603,7 +603,7 @@ async function initFirebase() {
     ]);
 
     cloud.api = { ...appModule, ...authModule, ...firestoreModule };
-    const { authorizedUid: _authorizedUid, ...firebaseAppConfig } = config;
+    const firebaseAppConfig = config;
     cloud.app = appModule.initializeApp(firebaseAppConfig, 'mgp-daily');
     cloud.auth = authModule.getAuth(cloud.app);
     await authModule.setPersistence(cloud.auth, authModule.browserLocalPersistence);
