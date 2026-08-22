@@ -3,8 +3,8 @@ service cloud.firestore {
   match /databases/{database}/documents {
     match /users/{userId}/{document=**} {
       allow read, write: if request.auth != null
-                         && request.auth.uid == "COLE_SEU_UID_AQUI"
-                         && userId == "COLE_SEU_UID_AQUI";
+                         && request.auth.uid == "r7phpAeSu2TKzettmItVRC6qZ6j2"
+                         && userId == "r7phpAeSu2TKzettmItVRC6qZ6j2";
     }
   }
 }

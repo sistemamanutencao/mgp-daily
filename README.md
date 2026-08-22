@@ -1,8 +1,8 @@
-# MGP Daily v0.2.1 — Single User
+# MGP Daily v0.2.2 — Single User
 
 PWA pessoal de apoio operacional para manutenção predial.
 
-## O que mudou na v0.2.1
+## O que mudou na v0.2.2
 
 Esta versão foi convertida para **uso exclusivo de um único usuário**.
 
@@ -64,7 +64,7 @@ Não é necessário e não é recomendado habilitar criação de conta dentro do
 Crie o Cloud Firestore. Depois abra `firestore.rules` e substitua **as duas ocorrências** de:
 
 ```text
-COLE_SEU_UID_AQUI
+r7phpAeSu2TKzettmItVRC6qZ6j2
 ```
 
 pelo UID copiado do Firebase Authentication.

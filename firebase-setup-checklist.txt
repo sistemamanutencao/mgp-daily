@@ -1,11 +1,11 @@
-MGP DAILY v0.2.1 — CHECKLIST FIREBASE (USO PESSOAL)
+MGP DAILY v0.2.2 — CHECKLIST FIREBASE (USO PESSOAL)
 
 [ ] Criar/selecionar projeto Firebase
 [ ] Criar App Web
 [ ] Authentication > Sign-in method > Email/Password > Ativar
 [ ] Authentication > Users > Add user > criar APENAS sua conta
 [ ] Copiar o UID da sua conta em Authentication > Users
-[ ] Abrir firestore.rules e substituir TODAS as ocorrências de COLE_SEU_UID_AQUI pelo seu UID
+[x] UID pessoal já incorporado em firestore.rules e no aplicativo
 [ ] Firestore Database > Create database
 [ ] Firestore > Rules > colar o conteúdo de firestore.rules > Publish
 [ ] Authentication > Settings > Authorized domains > adicionar domínio publicado

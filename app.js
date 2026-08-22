@@ -1,4 +1,5 @@
-const APP_VERSION = '0.2.1';
+const APP_VERSION = '0.2.2';
+const AUTHORIZED_UID = 'r7phpAeSu2TKzettmItVRC6qZ6j2';
 const DB_NAME = 'mgp-daily-db';
 const DB_VERSION = 2;
 const FIREBASE_VERSION = '12.17.1';
@@ -255,11 +256,11 @@ function historyView() {
 
 function accessGateView() {
   const config = getFirebaseConfig();
-  const configured = Boolean(config?.authorizedUid && config?.apiKey && config?.projectId && config?.appId);
+  const configured = Boolean(config?.apiKey && config?.projectId && config?.appId);
   const title = configured ? 'Acesso restrito' : 'Configuração inicial';
   const text = configured
     ? 'Entre com a única conta autorizada para acessar suas tarefas e materiais. Depois do primeiro login, o app continua disponível offline neste dispositivo.'
-    : 'Configure o Firebase e informe o UID da sua conta. O MGP Daily ficará bloqueado para qualquer outro usuário.';
+    : 'Configure o Firebase. O MGP Daily já está bloqueado para a conta pessoal autorizada.';
   const buttonId = configured ? 'accountBtn' : 'setupCloudBtn';
   const buttonText = configured ? 'Entrar' : 'Configurar Firebase';
   return `<div class="auth-gate"><div class="auth-gate-card"><div class="auth-mark">M</div><span class="eyebrow">MGP DAILY <span class="version">v${APP_VERSION}</span></span><h1>${title}</h1><p>${text}</p><button class="primary-btn auth-gate-btn" id="${buttonId}">${buttonText}</button><small>Uso pessoal · acesso por UID do Firebase</small></div></div>`;
@@ -437,8 +438,7 @@ function saveFirebaseConfig(config) {
 
 function firebaseConfigForm(current = {}) {
   return `<div class="modal-head"><div><span class="eyebrow">FIREBASE · USO PESSOAL</span><h2>Conectar sua conta</h2></div><button type="button" class="icon-btn subtle close">×</button></div>
-    <div class="cloud-explainer"><strong>Acesso exclusivo por UID</strong><span>Cadastre sua conta manualmente no Firebase Authentication e informe abaixo o UID dela. O aplicativo recusará qualquer outra conta.</span></div>
-    <label>UID autorizado<input name="authorizedUid" required value="${esc(current.authorizedUid || '')}" placeholder="UID copiado do Firebase Authentication"></label>
+    <div class="cloud-explainer"><strong>Acesso pessoal bloqueado</strong><span>Esta versão aceita somente a conta Firebase autorizada na compilação do aplicativo.</span></div>
     <label>API Key<input name="apiKey" required value="${esc(current.apiKey || '')}" placeholder="AIza..."></label>
     <label>Auth Domain<input name="authDomain" required value="${esc(current.authDomain || '')}" placeholder="seu-projeto.firebaseapp.com"></label>
     <label>Project ID<input name="projectId" required value="${esc(current.projectId || '')}" placeholder="seu-projeto"></label>
@@ -474,7 +474,6 @@ function accountModal() {
       event.preventDefault();
       const data = new FormData(form);
       const firebaseConfig = {
-        authorizedUid: data.get('authorizedUid').trim(),
         apiKey: data.get('apiKey').trim(),
         authDomain: data.get('authDomain').trim(),
         projectId: data.get('projectId').trim(),
@@ -540,7 +539,6 @@ function firebaseConfigEditModal(config) {
     event.preventDefault();
     const data = new FormData(form);
     saveFirebaseConfig({
-      authorizedUid: data.get('authorizedUid').trim(),
       apiKey: data.get('apiKey').trim(),
       authDomain: data.get('authDomain').trim(),
       projectId: data.get('projectId').trim(),
@@ -625,7 +623,7 @@ async function initFirebase() {
     warmFirebaseCache();
 
     authModule.onAuthStateChanged(cloud.auth, async (user) => {
-      const configuredUid = String(config.authorizedUid || '').trim();
+      const configuredUid = AUTHORIZED_UID;
       stopCloudListeners();
 
       if (user && configuredUid && user.uid !== configuredUid) {
@@ -844,7 +842,7 @@ if ('serviceWorker' in navigator) {
   const config = getFirebaseConfig();
   state.firebaseConfigured = Boolean(config);
   const verifiedUid = localStorage.getItem(VERIFIED_UID_KEY);
-  state.accessGranted = Boolean(!navigator.onLine && config?.authorizedUid && verifiedUid === config.authorizedUid);
+  state.accessGranted = Boolean(!navigator.onLine && verifiedUid === AUTHORIZED_UID);
   await refresh();
   initFirebase();
 })();
