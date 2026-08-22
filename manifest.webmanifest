@@ -1,0 +1,16 @@
+{
+  "name": "MGP Daily",
+  "short_name": "MGP Daily",
+  "description": "Copiloto operacional para manutenção predial",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f7fb",
+  "theme_color": "#0f2744",
+  "orientation": "portrait-primary",
+  "icons": [
+    {"src":"assets/icon-192.png","sizes":"192x192","type":"image/png","purpose":"any"},
+    {"src":"assets/icon-512.png","sizes":"512x512","type":"image/png","purpose":"any"},
+    {"src":"assets/maskable-512.png","sizes":"512x512","type":"image/png","purpose":"maskable"}
+  ]
+}
