@@ -1,110 +1,131 @@
-# MGP Daily v0.2.0
+# MGP Daily v0.2.1 — Single User
 
-PWA de apoio operacional para manutenção predial.
+PWA pessoal de apoio operacional para manutenção predial.
 
-## Novidades da v0.2.0
+## O que mudou na v0.2.1
 
-- Login por e-mail e senha com Firebase Authentication.
-- Sincronização de tarefas e materiais com Cloud Firestore.
-- Operação offline preservada via IndexedDB local.
-- Fila de sincronização: alterações feitas sem internet são enviadas quando a conexão volta.
-- Mesma conta pode recuperar os dados em outro dispositivo.
-- Indicador de estado da nuvem no topo do app.
-- Configuração do Firebase feita pela própria interface, sem editar código.
+Esta versão foi convertida para **uso exclusivo de um único usuário**.
+
+- Não existe cadastro público dentro do aplicativo.
+- A conta é criada manualmente no Firebase Authentication.
+- O acesso é autorizado pelo **UID** da conta, não apenas pelo e-mail.
+- Qualquer login com UID diferente é recusado automaticamente.
+- As regras do Firestore também restringem leitura e escrita ao mesmo UID.
+- O aplicativo fica bloqueado até a configuração/login serem concluídos.
+- Depois de um login autorizado, o dispositivo pode continuar operando offline.
+- Tarefas e materiais continuam salvos primeiro no IndexedDB e sincronizados com o Firestore quando a internet volta.
 - Backup JSON continua disponível como cópia independente.
 
-## Como os dados funcionam
+## Como funciona o acesso
 
-1. Toda alteração é salva primeiro no IndexedDB do dispositivo.
-2. Uma operação pendente é registrada na fila local de sincronização.
-3. Quando há internet e o usuário está autenticado, a fila é enviada ao Firestore.
-4. Alterações vindas de outro dispositivo são recebidas em tempo real.
-5. Se o navegador for limpo, basta entrar novamente com a mesma conta para recuperar os dados que já estavam sincronizados.
+1. Você cria sua conta manualmente em Firebase Authentication.
+2. O Firebase gera um UID único para essa conta.
+3. Esse UID é informado no MGP Daily e também fixado nas regras do Firestore.
+4. No login, o app compara o UID autenticado com o UID autorizado.
+5. Se forem diferentes, o app encerra a sessão e nega o acesso.
 
-Atenção: alterações criadas offline e ainda não sincronizadas continuam existindo somente no dispositivo até a conexão voltar.
+O UID é preferível ao e-mail como chave de autorização porque é o identificador interno e imutável da conta Firebase.
+
+## Funcionamento offline
+
+Toda alteração é salva primeiro no IndexedDB do dispositivo. Quando houver internet e a conta autorizada estiver autenticada, a fila local é sincronizada com o Firestore.
+
+Depois que este dispositivo tiver realizado ao menos um login autorizado, o MGP Daily registra localmente que ele já foi validado. Se o aplicativo for aberto sem internet, os dados locais continuam disponíveis. Quando a conexão voltar, o Firebase valida a sessão e sincroniza as alterações.
+
+Atenção: alterações feitas offline e ainda não sincronizadas existem somente naquele dispositivo até a conexão retornar.
 
 ## Configuração do Firebase
 
-### 1. Criar ou escolher um projeto
+### 1. Criar um App Web
 
-Acesse o Firebase Console e crie um projeto específico para o MGP Daily ou escolha um projeto destinado a ele.
+No Firebase Console, abra **Configurações do projeto > Seus apps** e crie um App Web. Guarde:
 
-### 2. Criar um App Web
+- `apiKey`
+- `authDomain`
+- `projectId`
+- `storageBucket`
+- `messagingSenderId`
+- `appId`
 
-Em Configurações do projeto > Seus apps, crie um app Web. O Firebase exibirá uma configuração semelhante a:
+### 2. Ativar Authentication
 
-```js
-const firebaseConfig = {
-  apiKey: "...",
-  authDomain: "...",
-  projectId: "...",
-  storageBucket: "...",
-  messagingSenderId: "...",
-  appId: "..."
-};
-```
+Abra **Authentication > Sign-in method > Email/Password** e ative o provedor.
 
-No MGP Daily, clique no indicador de nuvem no topo > Configurar e copie cada valor para o campo correspondente.
+### 3. Criar somente sua conta
 
-### 3. Ativar login por e-mail e senha
+Abra **Authentication > Users > Add user** e crie sua conta com e-mail e senha.
 
-Firebase Console > Authentication > Sign-in method > Email/Password > Ativar.
+Depois copie o **UID** exibido para esse usuário.
 
-### 4. Autorizar o domínio onde o PWA será publicado
+Não é necessário e não é recomendado habilitar criação de conta dentro do MGP Daily.
 
-Firebase Console > Authentication > Settings > Authorized domains.
+### 4. Criar o Firestore e restringir ao seu UID
 
-Adicione o domínio do site publicado, por exemplo:
-
-- `seuusuario.github.io`
-
-Não inclua `https://` nem o caminho do repositório.
-
-### 5. Criar o Cloud Firestore
-
-Firebase Console > Firestore Database > Create database.
-
-Depois substitua as regras pelas regras contidas em `firestore.rules` deste projeto:
+Crie o Cloud Firestore. Depois abra `firestore.rules` e substitua **as duas ocorrências** de:
 
 ```text
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /users/{userId}/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-    }
-  }
-}
+COLE_SEU_UID_AQUI
 ```
 
-Publique as regras.
+pelo UID copiado do Firebase Authentication.
 
-### 6. Criar a conta no app
+As regras ficarão conceitualmente assim:
 
-Abra o MGP Daily > indicador de nuvem > informe e-mail e senha > Criar minha conta.
+```text
+request.auth.uid == "SEU_UID"
+userId == "SEU_UID"
+```
 
-Depois de autenticado, o indicador deve mudar para `Nuvem OK` quando a sincronização terminar.
+Publique essas regras no Firebase Console.
 
-## Teste de sincronização recomendado
+### 5. Autorizar o domínio publicado
 
-1. Cadastre uma tarefa no computador.
-2. Espere aparecer `Nuvem OK`.
-3. Abra o PWA em outro navegador/dispositivo.
-4. Configure o mesmo Firebase e entre com a mesma conta.
-5. A tarefa deve ser baixada automaticamente.
-6. Desconecte a internet, altere uma tarefa e reconecte. A alteração deve ser sincronizada automaticamente.
+Em **Authentication > Settings > Authorized domains**, adicione o domínio onde a PWA será publicada, por exemplo `seuusuario.github.io`.
 
-## Segurança
+### 6. Configurar o MGP Daily
 
-Os documentos são armazenados em:
+Na primeira abertura, o aplicativo mostrará **Configuração inicial**. Clique em **Configurar Firebase** e informe:
+
+- UID autorizado (o mesmo UID usado nas regras)
+- API Key
+- Auth Domain
+- Project ID
+- App ID
+- Messaging Sender ID
+- Storage Bucket
+
+Depois clique em **Entrar** e use a conta criada manualmente no Firebase.
+
+## Estrutura dos dados
+
+Os documentos permanecem em:
 
 - `users/{uid}/tasks/{taskId}`
 - `users/{uid}/materials/{materialId}`
 
-As regras incluídas impedem que um usuário autenticado leia ou altere os dados de outro `uid`.
+Há duas barreiras de acesso: o aplicativo valida o UID e o Firestore valida novamente o UID nas regras. A segurança efetiva dos dados depende das regras do Firestore; a verificação no aplicativo é uma proteção adicional de interface.
 
-A configuração Web do Firebase identifica o projeto e não substitui as regras de segurança. A proteção dos dados depende principalmente do Authentication e das regras do Firestore.
+## Teste recomendado
+
+1. Entre no computador e crie uma tarefa.
+2. Aguarde `Nuvem OK`.
+3. Abra o PWA em outro dispositivo.
+4. Configure o mesmo projeto e o mesmo UID autorizado.
+5. Entre com a mesma conta.
+6. Confirme que a tarefa aparece.
+7. Desconecte a internet, altere uma tarefa e reconecte.
+8. Confirme a sincronização.
+9. Opcionalmente tente outra conta Firebase: o app deve exibir **Acesso negado** e o Firestore também deve negar acesso.
 
 ## Publicação
 
-Esta versão continua sendo uma PWA estática. Publique `index.html`, `app.js`, `styles.css`, `sw.js`, `manifest.webmanifest` e a pasta `assets` na mesma raiz do site.
+A PWA continua estática. Publique na mesma raiz:
+
+- `index.html`
+- `app.js`
+- `styles.css`
+- `sw.js`
+- `manifest.webmanifest`
+- pasta `assets`
+
+O arquivo `firestore.rules` não precisa ser publicado no site; ele serve para configurar as regras no Console do Firebase.

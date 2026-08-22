@@ -1,20 +1,29 @@
-MGP DAILY v0.2.0 — CHECKLIST FIREBASE
+MGP DAILY v0.2.1 — CHECKLIST FIREBASE (USO PESSOAL)
 
 [ ] Criar/selecionar projeto Firebase
 [ ] Criar App Web
+[ ] Authentication > Sign-in method > Email/Password > Ativar
+[ ] Authentication > Users > Add user > criar APENAS sua conta
+[ ] Copiar o UID da sua conta em Authentication > Users
+[ ] Abrir firestore.rules e substituir TODAS as ocorrências de COLE_SEU_UID_AQUI pelo seu UID
+[ ] Firestore Database > Create database
+[ ] Firestore > Rules > colar o conteúdo de firestore.rules > Publish
+[ ] Authentication > Settings > Authorized domains > adicionar domínio publicado
+[ ] Publicar os arquivos da PWA
+[ ] Abrir MGP Daily > Configurar Firebase
+[ ] Informar o mesmo UID autorizado no campo "UID autorizado"
 [ ] Copiar apiKey
 [ ] Copiar authDomain
 [ ] Copiar projectId
 [ ] Copiar appId
 [ ] Copiar messagingSenderId
 [ ] Copiar storageBucket
-[ ] Authentication > Email/Password > Ativar
-[ ] Authentication > Settings > Authorized domains > adicionar domínio publicado
-[ ] Firestore Database > Create database
-[ ] Firestore > Rules > colar o conteúdo de firestore.rules > Publish
-[ ] Publicar os arquivos da PWA
-[ ] Abrir MGP Daily > Nuvem > Configurar Firebase
-[ ] Criar conta ou entrar
+[ ] Entrar com a conta criada manualmente no Firebase
 [ ] Confirmar indicador "Nuvem OK"
-[ ] Criar tarefa no dispositivo A e confirmar no dispositivo B
+[ ] Testar no segundo dispositivo usando a MESMA conta
 [ ] Testar alteração offline e sincronização ao reconectar
+
+IMPORTANTE
+- Não existe cadastro de novos usuários dentro do MGP Daily.
+- Qualquer conta cujo UID seja diferente do UID configurado será recusada pelo app.
+- As regras do Firestore também bloqueiam qualquer UID diferente do autorizado.

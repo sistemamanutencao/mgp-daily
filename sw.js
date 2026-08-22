@@ -1,9 +1,9 @@
-const CACHE = 'mgp-daily-v0.2.0';
+const CACHE = 'mgp-daily-v0.2.1';
 const ASSETS = [
   './',
   './index.html',
-  './styles.css?v=0.2.0',
-  './app.js?v=0.2.0',
+  './styles.css?v=0.2.1',
+  './app.js?v=0.2.1',
   './manifest.webmanifest',
   './assets/icon-192.png',
   './assets/icon-512.png',

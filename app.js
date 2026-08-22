@@ -1,8 +1,9 @@
-const APP_VERSION = '0.2.0';
+const APP_VERSION = '0.2.1';
 const DB_NAME = 'mgp-daily-db';
 const DB_VERSION = 2;
 const FIREBASE_VERSION = '12.17.1';
 const FIREBASE_CONFIG_KEY = 'mgpDailyFirebaseConfig';
+const VERIFIED_UID_KEY = 'mgpDailyVerifiedUid';
 
 const priorityMeta = {
   emergency: { label: 'Emergência', weight: 4, tone: 'danger' },
@@ -30,6 +31,7 @@ const state = {
   materials: [],
   firebaseConfigured: false,
   user: null,
+  accessGranted: false,
   syncStatus: 'local',
   syncMessage: 'Somente neste dispositivo',
 };
@@ -250,7 +252,25 @@ function historyView() {
   return `<section class="section flush"><div class="backup-box"><div><strong>Backup adicional</strong><span>${state.user ? 'Seus dados também estão sincronizados com o Firebase. O arquivo JSON continua útil como cópia independente.' : 'Sem login na nuvem, este arquivo é sua principal proteção contra perda de dados.'}</span></div><div class="backup-actions"><button class="secondary-btn" id="exportBtn">Exportar</button><button class="secondary-btn" id="importBtn">Importar</button></div></div><div class="section-head"><h2>Atividade recente</h2></div>${events.length ? events.slice(0, 60).map((e) => `<div class="history-row"><div class="timeline-dot"></div><div><strong>${esc(e.action)}</strong><span>${esc(e.task)} · ${esc(e.location)}</span><small>${new Date(e.at).toLocaleString('pt-BR')}</small></div></div>`).join('') : empty('Sem histórico', 'As movimentações das tarefas aparecerão aqui.')}</section>`;
 }
 
+
+function accessGateView() {
+  const config = getFirebaseConfig();
+  const configured = Boolean(config?.authorizedUid && config?.apiKey && config?.projectId && config?.appId);
+  const title = configured ? 'Acesso restrito' : 'Configuração inicial';
+  const text = configured
+    ? 'Entre com a única conta autorizada para acessar suas tarefas e materiais. Depois do primeiro login, o app continua disponível offline neste dispositivo.'
+    : 'Configure o Firebase e informe o UID da sua conta. O MGP Daily ficará bloqueado para qualquer outro usuário.';
+  const buttonId = configured ? 'accountBtn' : 'setupCloudBtn';
+  const buttonText = configured ? 'Entrar' : 'Configurar Firebase';
+  return `<div class="auth-gate"><div class="auth-gate-card"><div class="auth-mark">M</div><span class="eyebrow">MGP DAILY <span class="version">v${APP_VERSION}</span></span><h1>${title}</h1><p>${text}</p><button class="primary-btn auth-gate-btn" id="${buttonId}">${buttonText}</button><small>Uso pessoal · acesso por UID do Firebase</small></div></div>`;
+}
+
 function render() {
+  if (!state.accessGranted) {
+    document.querySelector('#app').innerHTML = accessGateView();
+    bind();
+    return;
+  }
   const titles = { today: 'Minha Jornada', tasks: 'Tarefas', saturday: 'Sábado', materials: 'Materiais', history: 'Histórico' };
   document.querySelector('#app').innerHTML = `<div class="app-shell">
     <header class="topbar">
@@ -416,8 +436,9 @@ function saveFirebaseConfig(config) {
 }
 
 function firebaseConfigForm(current = {}) {
-  return `<div class="modal-head"><div><span class="eyebrow">FIREBASE</span><h2>Conectar à nuvem</h2></div><button type="button" class="icon-btn subtle close">×</button></div>
-    <div class="cloud-explainer"><strong>Configuração única</strong><span>Copie os dados do app Web no Console do Firebase. A configuração identifica seu projeto; sua senha não é armazenada aqui.</span></div>
+  return `<div class="modal-head"><div><span class="eyebrow">FIREBASE · USO PESSOAL</span><h2>Conectar sua conta</h2></div><button type="button" class="icon-btn subtle close">×</button></div>
+    <div class="cloud-explainer"><strong>Acesso exclusivo por UID</strong><span>Cadastre sua conta manualmente no Firebase Authentication e informe abaixo o UID dela. O aplicativo recusará qualquer outra conta.</span></div>
+    <label>UID autorizado<input name="authorizedUid" required value="${esc(current.authorizedUid || '')}" placeholder="UID copiado do Firebase Authentication"></label>
     <label>API Key<input name="apiKey" required value="${esc(current.apiKey || '')}" placeholder="AIza..."></label>
     <label>Auth Domain<input name="authDomain" required value="${esc(current.authDomain || '')}" placeholder="seu-projeto.firebaseapp.com"></label>
     <label>Project ID<input name="projectId" required value="${esc(current.projectId || '')}" placeholder="seu-projeto"></label>
@@ -428,11 +449,11 @@ function firebaseConfigForm(current = {}) {
 }
 
 function loginForm() {
-  return `<div class="modal-head"><div><span class="eyebrow">CONTA</span><h2>Entrar no MGP Daily</h2></div><button type="button" class="icon-btn subtle close">×</button></div>
-    <div class="cloud-explainer"><strong>Sincronização segura</strong><span>Use a mesma conta em seus dispositivos para manter tarefas e materiais sincronizados.</span></div>
+  return `<div class="modal-head"><div><span class="eyebrow">ACESSO PESSOAL</span><h2>Entrar no MGP Daily</h2></div><button type="button" class="icon-btn subtle close">×</button></div>
+    <div class="cloud-explainer"><strong>Somente sua conta é aceita</strong><span>Não existe cadastro público neste aplicativo. A conta autorizada é definida pelo UID configurado no Firebase.</span></div>
     <label>E-mail<input name="email" type="email" required autocomplete="email" placeholder="seu@email.com"></label>
     <label>Senha<input name="password" type="password" required minlength="6" autocomplete="current-password" placeholder="Mínimo 6 caracteres"></label>
-    <div class="modal-actions stacked"><button type="submit" class="primary-btn" data-auth-action="login">Entrar</button><button type="button" class="secondary-btn" id="createAccountBtn">Criar minha conta</button><button type="button" class="text-btn" id="editFirebaseBtn">Alterar configuração do Firebase</button></div>`;
+    <div class="modal-actions stacked"><button type="submit" class="primary-btn" data-auth-action="login">Entrar</button><button type="button" class="text-btn" id="editFirebaseBtn">Alterar configuração do Firebase</button></div>`;
 }
 
 function signedInView() {
@@ -453,6 +474,7 @@ function accountModal() {
       event.preventDefault();
       const data = new FormData(form);
       const firebaseConfig = {
+        authorizedUid: data.get('authorizedUid').trim(),
         apiKey: data.get('apiKey').trim(),
         authDomain: data.get('authDomain').trim(),
         projectId: data.get('projectId').trim(),
@@ -488,6 +510,8 @@ function accountModal() {
           return;
         }
         await cloud.api.signOut(cloud.auth);
+        localStorage.removeItem(VERIFIED_UID_KEY);
+        state.accessGranted = false;
         await clearLocal('tasks');
         await clearLocal('materials');
         await clearLocal('syncQueue');
@@ -506,16 +530,6 @@ function accountModal() {
     const data = new FormData(form);
     await authWithEmail(data.get('email').trim(), data.get('password'), false, el);
   };
-  el.querySelector('#createAccountBtn')?.addEventListener('click', async () => {
-    const data = new FormData(form);
-    const email = String(data.get('email') || '').trim();
-    const password = String(data.get('password') || '');
-    if (!email || password.length < 6) {
-      alert('Informe um e-mail válido e uma senha com pelo menos 6 caracteres.');
-      return;
-    }
-    await authWithEmail(email, password, true, el);
-  });
 }
 
 function firebaseConfigEditModal(config) {
@@ -526,6 +540,7 @@ function firebaseConfigEditModal(config) {
     event.preventDefault();
     const data = new FormData(form);
     saveFirebaseConfig({
+      authorizedUid: data.get('authorizedUid').trim(),
       apiKey: data.get('apiKey').trim(),
       authDomain: data.get('authDomain').trim(),
       projectId: data.get('projectId').trim(),
@@ -538,15 +553,14 @@ function firebaseConfigEditModal(config) {
   };
 }
 
-async function authWithEmail(email, password, createAccount, modal) {
+async function authWithEmail(email, password, _createAccount, modal) {
   if (!cloud.initialized) await initFirebase();
   if (!cloud.initialized) {
     alert(state.syncMessage);
     return;
   }
   try {
-    if (createAccount) await cloud.api.createUserWithEmailAndPassword(cloud.auth, email, password);
-    else await cloud.api.signInWithEmailAndPassword(cloud.auth, email, password);
+    await cloud.api.signInWithEmailAndPassword(cloud.auth, email, password);
     modal.remove();
   } catch (error) {
     alert(firebaseErrorMessage(error));
@@ -591,7 +605,8 @@ async function initFirebase() {
     ]);
 
     cloud.api = { ...appModule, ...authModule, ...firestoreModule };
-    cloud.app = appModule.initializeApp(config, 'mgp-daily');
+    const { authorizedUid: _authorizedUid, ...firebaseAppConfig } = config;
+    cloud.app = appModule.initializeApp(firebaseAppConfig, 'mgp-daily');
     cloud.auth = authModule.getAuth(cloud.app);
     await authModule.setPersistence(cloud.auth, authModule.browserLocalPersistence);
 
@@ -610,9 +625,26 @@ async function initFirebase() {
     warmFirebaseCache();
 
     authModule.onAuthStateChanged(cloud.auth, async (user) => {
-      state.user = user ? { uid: user.uid, email: user.email } : null;
+      const configuredUid = String(config.authorizedUid || '').trim();
       stopCloudListeners();
-      if (user) {
+
+      if (user && configuredUid && user.uid !== configuredUid) {
+        state.user = null;
+        state.accessGranted = false;
+        localStorage.removeItem(VERIFIED_UID_KEY);
+        state.syncStatus = 'error';
+        state.syncMessage = 'Conta não autorizada para este aplicativo.';
+        await authModule.signOut(cloud.auth);
+        render();
+        alert('Acesso negado. Esta conta não é a conta autorizada do MGP Daily.');
+        return;
+      }
+
+      state.user = user ? { uid: user.uid, email: user.email } : null;
+      state.accessGranted = Boolean(user && configuredUid && user.uid === configuredUid);
+
+      if (state.accessGranted) {
+        localStorage.setItem(VERIFIED_UID_KEY, configuredUid);
         state.syncStatus = navigator.onLine ? 'syncing' : 'offline';
         state.syncMessage = navigator.onLine ? 'Preparando sincronização...' : 'Offline — alterações serão enviadas quando houver internet';
         render();
@@ -623,7 +655,7 @@ async function initFirebase() {
         }
       } else {
         state.syncStatus = 'local';
-        state.syncMessage = 'Firebase configurado — entre para sincronizar';
+        state.syncMessage = 'Entre com sua conta autorizada';
         render();
       }
     });
@@ -809,7 +841,10 @@ if ('serviceWorker' in navigator) {
 }
 
 (async function boot() {
-  state.firebaseConfigured = Boolean(getFirebaseConfig());
+  const config = getFirebaseConfig();
+  state.firebaseConfigured = Boolean(config);
+  const verifiedUid = localStorage.getItem(VERIFIED_UID_KEY);
+  state.accessGranted = Boolean(!navigator.onLine && config?.authorizedUid && verifiedUid === config.authorizedUid);
   await refresh();
   initFirebase();
 })();
