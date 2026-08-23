@@ -1,4 +1,4 @@
-const APP_VERSION = '0.3.0';
+const APP_VERSION = '0.3.1';
 const AUTHORIZED_UID = 'r7phpAeSu2TKzettmItVRC6qZ6j2';
 const DB_NAME = 'mgp-daily-db';
 const DB_VERSION = 2;
@@ -157,6 +157,29 @@ function executable() {
     );
 }
 
+function emergencyAwaitingDecision() {
+  return active().find((t) => t.priority === 'emergency' && t.status === 'planned' && t.emergencyDecision === 'pending');
+}
+
+function deferredEmergency() {
+  return active().find((t) => t.priority === 'emergency' && t.status === 'planned' && t.emergencyDecision === 'deferred');
+}
+
+function emergencyDecisionNotice(task) {
+  const pending = task.emergencyDecision === 'pending';
+  return `<section class="emergency-notice">
+    <div>
+      <span class="eyebrow">${pending ? 'DECISÃO NECESSÁRIA' : 'EMERGÊNCIA PENDENTE'}</span>
+      <strong>${pending ? 'Nova emergência enquanto há uma tarefa em execução' : 'Você optou por manter a tarefa atual'}</strong>
+      <span><b>${esc(task.title)}</b> · ${esc(task.location)}${pending ? ' precisa de uma decisão operacional.' : ' continua aguardando atendimento.'}</span>
+    </div>
+    <div class="emergency-actions">
+      <button class="danger-btn" data-emergency-assume="${task.id}">${pending ? 'Assumir emergência' : 'Assumir agora'}</button>
+      ${pending ? `<button class="secondary-btn" data-emergency-keep="${task.id}">Manter tarefa atual</button>` : ''}
+    </div>
+  </section>`;
+}
+
 function esc(value = '') {
   return String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
 }
@@ -224,8 +247,10 @@ function todayView() {
   const next = ex[0];
   const interrupted = a.filter((t) => t.status === 'interrupted');
   const blocked = a.filter((t) => ['waitingMaterial', 'waitingEnvironment'].includes(t.status));
+  const emergencyDecision = emergencyAwaitingDecision() || deferredEmergency();
   return `${cloudSetupNotice()}
     <section class="hero"><p class="muted">Controle primeiro o que realmente pode e deve ser feito.</p><div class="stats-grid">${stat(a.filter((t) => t.priority === 'emergency').length, 'Emergências', 'danger')}${stat(a.filter((t) => t.priority === 'high').length, 'Alta prioridade', 'warning')}${stat(interrupted.length, 'Interrompidas', 'violet')}${stat(a.filter((t) => t.status === 'waitingMaterial').length, 'Sem material')}</div></section>
+    ${emergencyDecision ? emergencyDecisionNotice(emergencyDecision) : ''}
     <section class="section"><div class="section-head"><div><span class="eyebrow">PRÓXIMA MISSÃO</span><h2>O que fazer agora</h2></div></div>${next ? card(next) : empty('Nenhuma tarefa executável', 'Cadastre uma tarefa ou revise as atividades bloqueadas.')}</section>
     ${interrupted.length ? `<section class="section"><div class="section-head"><h2>Retomar</h2><span class="count-pill">${interrupted.length}</span></div>${interrupted.slice(0, 3).map((t) => card(t)).join('')}</section>` : ''}
     ${blocked.length ? `<section class="section"><div class="section-head"><h2>Bloqueadas</h2><span class="count-pill">${blocked.length}</span></div>${blocked.slice(0, 3).map((t) => card(t)).join('')}</section>` : ''}`;
@@ -290,6 +315,8 @@ function bind() {
   document.querySelector('#accountBtn')?.addEventListener('click', accountModal);
   document.querySelectorAll('[data-edit]').forEach((button) => (button.onclick = () => taskModal(state.tasks.find((t) => t.id === button.dataset.edit))));
   document.querySelectorAll('[data-start]').forEach((button) => (button.onclick = () => startTask(button.dataset.start)));
+  document.querySelectorAll('[data-emergency-assume]').forEach((button) => (button.onclick = () => assumeEmergency(button.dataset.emergencyAssume)));
+  document.querySelectorAll('[data-emergency-keep]').forEach((button) => (button.onclick = () => keepCurrentTask(button.dataset.emergencyKeep)));
   document.querySelectorAll('[data-interrupt]').forEach((button) => (button.onclick = () => interruptTask(button.dataset.interrupt)));
   document.querySelectorAll('[data-complete]').forEach((button) => (button.onclick = () => transition(button.dataset.complete, 'completed', 'Tarefa concluída', { completedAt: now(), interruptionReason: '' })));
   document.querySelectorAll('[data-block]').forEach((button) => (button.onclick = () => {
@@ -318,11 +345,80 @@ async function transition(id, status, action, extra = {}) {
 
 async function startTask(id) {
   const task = state.tasks.find((t) => t.id === id);
+  if (!task) return;
   const running = state.tasks.find((t) => t.status === 'inProgress' && t.id !== id);
+
+  if (running && task.priority === 'emergency') {
+    await put('tasks', {
+      ...task,
+      emergencyDecision: 'pending',
+      updatedAt: now(),
+      history: [...(task.history || []), { at: now(), action: `Emergência aguardando decisão enquanto "${running.title}" está em execução` }],
+    });
+    await refresh();
+    emergencyDecisionModal(task.id);
+    return;
+  }
+
   if (running) {
     await put('tasks', { ...running, status: 'interrupted', interruptionReason: 'Troca de prioridade', updatedAt: now(), history: [...(running.history || []), { at: now(), action: `Interrompida automaticamente para iniciar: ${task.title}` }] });
   }
-  await transition(id, 'inProgress', 'Execução iniciada', { startedAt: task.startedAt || now(), interruptionReason: '' });
+  await transition(id, 'inProgress', 'Execução iniciada', { startedAt: task.startedAt || now(), interruptionReason: '', emergencyDecision: task.priority === 'emergency' ? 'assumed' : (task.emergencyDecision || '') });
+}
+
+async function assumeEmergency(id) {
+  const emergency = state.tasks.find((t) => t.id === id);
+  if (!emergency) return;
+  const running = state.tasks.find((t) => t.status === 'inProgress' && t.id !== id);
+  const timestamp = now();
+
+  if (running) {
+    await put('tasks', {
+      ...running,
+      status: 'interrupted',
+      interruptionReason: `Atendimento de emergência: ${emergency.title}`,
+      updatedAt: timestamp,
+      history: [...(running.history || []), { at: timestamp, action: `Interrompida para atender emergência: ${emergency.title}` }],
+    });
+  }
+
+  await put('tasks', {
+    ...emergency,
+    status: 'inProgress',
+    startedAt: emergency.startedAt || timestamp,
+    interruptionReason: '',
+    emergencyDecision: 'assumed',
+    updatedAt: timestamp,
+    history: [...(emergency.history || []), { at: timestamp, action: running ? `Emergência assumida; interrompeu: ${running.title}` : 'Emergência assumida' }],
+  });
+
+  await refresh();
+  toast('Emergência assumida. A tarefa anterior ficou preservada para retomada.');
+}
+
+async function keepCurrentTask(id) {
+  const emergency = state.tasks.find((t) => t.id === id);
+  if (!emergency) return;
+  const running = state.tasks.find((t) => t.status === 'inProgress' && t.id !== id);
+  const timestamp = now();
+  await put('tasks', {
+    ...emergency,
+    emergencyDecision: 'deferred',
+    updatedAt: timestamp,
+    history: [...(emergency.history || []), { at: timestamp, action: running ? `Emergência mantida em espera; tarefa atual preservada: ${running.title}` : 'Emergência mantida em espera' }],
+  });
+  await refresh();
+  toast('Tarefa atual mantida. A emergência continua destacada para atendimento.');
+}
+
+function emergencyDecisionModal(id) {
+  const emergency = state.tasks.find((t) => t.id === id);
+  const running = state.tasks.find((t) => t.status === 'inProgress' && t.id !== id);
+  if (!emergency || !running) return;
+
+  const el = modalShell(`<div class="modal small emergency-modal"><div class="modal-head"><div><span class="eyebrow">NOVA EMERGÊNCIA</span><h2>Decisão operacional</h2></div></div><div class="emergency-summary"><strong>${esc(emergency.title)}</strong><span>${esc(emergency.location)} · Emergência</span></div><div class="current-task-summary"><span>Você está executando</span><strong>${esc(running.title)}</strong><small>${esc(running.location)}</small></div><p class="decision-copy">Assumir a emergência interrompe a tarefa atual e registra automaticamente o motivo. Manter a tarefa atual deixa a emergência destacada para atendimento posterior.</p><div class="modal-actions stacked"><button type="button" class="danger-btn" id="assumeEmergencyBtn">Assumir emergência</button><button type="button" class="secondary-btn" id="keepCurrentBtn">Manter tarefa atual</button></div></div>`);
+  el.querySelector('#assumeEmergencyBtn').onclick = async () => { el.remove(); await assumeEmergency(id); };
+  el.querySelector('#keepCurrentBtn').onclick = async () => { el.remove(); await keepCurrentTask(id); };
 }
 
 async function interruptTask(id) {
@@ -369,11 +465,22 @@ function taskModal(task) {
       updatedAt: now(),
       history: existing.history || [{ at: now(), action: 'Tarefa criada' }],
       interruptionReason: existing.interruptionReason || '',
+      emergencyDecision: existing.emergencyDecision || '',
     };
+
+    const running = state.tasks.find((t) => t.status === 'inProgress' && t.id !== value.id);
+    const becameEmergency = value.priority === 'emergency' && existing.priority !== 'emergency';
+    if (running && value.status === 'planned' && value.priority === 'emergency' && (!task || becameEmergency)) {
+      value.emergencyDecision = 'pending';
+      value.history = [...value.history, { at: now(), action: `Emergência aguardando decisão enquanto "${running.title}" está em execução` }];
+    }
+
     await put('tasks', value);
     el.remove();
     await refresh();
     toast(task ? 'Tarefa atualizada.' : 'Tarefa criada.');
+
+    if (value.emergencyDecision === 'pending') emergencyDecisionModal(value.id);
   };
 }
 

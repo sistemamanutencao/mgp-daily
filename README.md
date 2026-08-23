@@ -1,23 +1,31 @@
-# MGP Daily v0.3.0 — Firebase pré-configurado
+# MGP Daily v0.3.1
 
-PWA pessoal de manutenção predial, restrita ao UID autorizado.
+PWA pessoal para organizar a rotina de manutenção predial com foco em jornada diária, prioridades, bloqueios, materiais, histórico e sincronização offline com Firebase.
 
-## Alterações desta versão
+## Base mantida da v0.3.0
 
-- Firebase Web já incorporado ao aplicativo.
-- UID autorizado já incorporado ao aplicativo e às regras do Firestore.
-- Removida a tela de configuração manual do Firebase.
-- A primeira tela agora pede apenas e-mail e senha da conta criada no Firebase Authentication.
-- IndexedDB continua sendo a camada local/offline.
-- Firestore permanece como sincronização e recuperação em nuvem.
+- Login exclusivo pela conta autorizada no Firebase Authentication.
+- Firestore restrito ao UID autorizado.
+- IndexedDB local + fila de sincronização para uso offline.
+- Prioridades: Emergência, Alta, Média e Baixa.
+- Estados: Planejada, Em execução, Interrompida, Aguardando material, Aguardando ambiente, Sábado e Concluída.
+- Histórico de movimentações das tarefas.
+- Materiais essenciais e estoque mínimo.
+- Backup e restauração em JSON.
+- Tempo estimado em minutos ou **Tempo indeterminado**.
 
-## Ainda falta no Firebase Console
+## Novidade da v0.3.1 — decisão operacional de emergência
 
-1. Criar o Cloud Firestore, se ainda não foi criado.
-2. Publicar o conteúdo de `firestore.rules`.
-3. Em Authentication > Settings > Authorized domains, autorizar o domínio onde a PWA será publicada.
-4. Publicar os arquivos do ZIP.
-5. Entrar no MGP Daily com a conta já criada no Authentication.
+Quando uma tarefa de prioridade **Emergência** surge enquanto outra tarefa está em execução, o MGP Daily não interrompe o serviço atual sozinho. Ele exige uma decisão:
+
+- **Assumir emergência**: interrompe a tarefa atual, registra no histórico qual emergência provocou a interrupção e inicia a emergência.
+- **Manter tarefa atual**: preserva o serviço em andamento e mantém a emergência destacada na tela Hoje para atendimento posterior.
+- Uma emergência com decisão pendente ou adiada permanece visivelmente sinalizada até ser assumida.
+- Iniciar manualmente uma emergência pela aba Tarefas enquanto outra atividade está em execução também exige a mesma decisão.
+
+## Firebase
+
+A configuração Web do projeto já está incorporada ao app. Para publicar em outro domínio, lembre-se de autorizá-lo em Authentication > Settings > Authorized domains.
 
 ## Segurança
 
@@ -26,11 +34,3 @@ O app aceita somente o UID autorizado. As regras do Firestore repetem a mesma re
 ## Offline
 
 As alterações são gravadas primeiro no IndexedDB. Quando a internet retorna e a sessão está autenticada, a fila local é sincronizada com o Firestore.
-
-
-## Novidades da v0.3.0
-
-- Campo **Tempo indeterminado** para tarefas cuja duração não pode ser prevista.
-- Quando marcado, o campo de minutos é desativado e a tarefa exibe **Tempo indeterminado**.
-- Tarefas antigas continuam compatíveis e mantêm seus tempos estimados.
-- Mantidos login exclusivo, Firestore e sincronização offline.
