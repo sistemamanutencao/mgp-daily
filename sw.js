@@ -1,13 +1,15 @@
-const CACHE = 'mgp-daily-v0.4.0';
+const CACHE = 'mgp-daily-v0.5.0';
 const ASSETS = [
   './',
   './index.html',
-  './styles.css?v=0.4.0',
-  './app.js?v=0.4.0',
+  './styles.css?v=0.5.0',
+  './app.js?v=0.5.0',
   './manifest.webmanifest',
   './assets/icon-192.png',
   './assets/icon-512.png',
   './assets/maskable-512.png',
+  './assets/pedido-compras-template.xlsx',
+  'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js',
 ];
 
 self.addEventListener('install', (event) => {

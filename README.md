@@ -1,48 +1,68 @@
-# MGP Daily v0.4.0
+# MGP Daily v0.5.0
 
-PWA pessoal para organizar a rotina de manutenção predial com foco em jornada diária, prioridades, bloqueios, materiais, histórico e sincronização offline com Firebase.
+PWA pessoal para organização operacional da manutenção predial, com jornada diária, prioridades, pendências, materiais, histórico, login exclusivo e sincronização offline com Firebase.
 
-## Base mantida da v0.3.0
+## Mantido das versões anteriores
 
 - Login exclusivo pela conta autorizada no Firebase Authentication.
 - Firestore restrito ao UID autorizado.
 - IndexedDB local + fila de sincronização para uso offline.
 - Prioridades: Emergência, Alta, Média e Baixa.
 - Estados: Planejada, Em execução, Interrompida, Aguardando material, Aguardando ambiente, Sábado e Concluída.
+- Decisão operacional ao surgir uma emergência durante outra tarefa.
+- Central de Pendências com retomada e desbloqueio consciente.
 - Histórico de movimentações das tarefas.
-- Materiais essenciais e estoque mínimo.
+- Estoque essencial com nível mínimo.
+- Tempo estimado em minutos ou Tempo indeterminado.
 - Backup e restauração em JSON.
-- Tempo estimado em minutos ou **Tempo indeterminado**.
 
-## Novidade da v0.3.1 — decisão operacional de emergência
+## v0.5.0 — Materiais para Solicitação
 
-Quando uma tarefa de prioridade **Emergência** surge enquanto outra tarefa está em execução, o MGP Daily não interrompe o serviço atual sozinho. Ele exige uma decisão:
+A aba Materiais passa a ter duas áreas independentes:
 
-- **Assumir emergência**: interrompe a tarefa atual, registra no histórico qual emergência provocou a interrupção e inicia a emergência.
-- **Manter tarefa atual**: preserva o serviço em andamento e mantém a emergência destacada na tela Hoje para atendimento posterior.
-- Uma emergência com decisão pendente ou adiada permanece visivelmente sinalizada até ser assumida.
-- Iniciar manualmente uma emergência pela aba Tarefas enquanto outra atividade está em execução também exige a mesma decisão.
+1. **Estoque essencial** — mantém o controle operacional já existente.
+2. **Para solicitar** — lista de materiais que precisam entrar no próximo pedido de compras.
 
-## Firebase
+### Registro rápido
 
-A configuração Web do projeto já está incorporada ao app. Para publicar em outro domínio, lembre-se de autorizá-lo em Authentication > Settings > Authorized domains.
+Cada item para solicitação guarda:
 
-## Segurança
+- Produto/Serviço
+- Quantidade
+- Especificação
+- vínculo opcional com uma tarefa em `Aguardando material`
 
-O app aceita somente o UID autorizado. As regras do Firestore repetem a mesma restrição no servidor. A configuração Web do Firebase não é um segredo; a proteção dos dados depende do Authentication e das regras do Firestore.
+Na Central de Pendências, uma tarefa em `Aguardando material` recebe a ação **Anotar material**, permitindo criar o item de compra já relacionado à tarefa.
 
-## Offline
+### Exportação para Excel
 
-As alterações são gravadas primeiro no IndexedDB. Quando a internet retorna e a sessão está autenticada, a fila local é sincronizada com o Firestore.
+O app inclui o modelo original `assets/pedido-compras-template.xlsx` e gera uma cópia preservando a estrutura da planilha. Antes da exportação são informados:
 
+- DATA
+- Nº DA SOLICITAÇÃO
+- DATA DA UTILIZAÇÃO
 
-## v0.4.0 — Central de Pendências
+Os itens selecionados preenchem automaticamente:
 
-- Nova aba **Pendências** substitui a aba isolada de Sábado.
-- Agrupa **Interrompidas**, **Aguardando material**, **Aguardando ambiente** e **Sábado**.
-- `Retomar agora` para tarefas interrompidas.
-- `Material disponível` devolve a tarefa para `Planejada` e para a Jornada.
-- `Ambiente liberado` devolve a tarefa para `Planejada` e para a Jornada.
-- `Executar agora` inicia tarefas de sábado quando a janela de execução estiver disponível.
-- Nenhuma pendência é desbloqueada automaticamente por tempo: a mudança depende de confirmação explícita.
-- A tela Hoje ganha atalho para a Central sempre que houver pendências.
+- PRODUTO/SERVIÇO — `E10:E38`
+- QUANTIDADE — `F10:F38`
+- ESPECIFICAÇÃO — `H10:H38`
+- DATA DA UTILIZAÇÃO — `K10:K38`
+
+A DATA é preenchida em `I5` e o Nº DA SOLICITAÇÃO em `K5`.
+
+O modelo possui 29 linhas para itens. Se houver mais materiais pendentes, gere mais de uma solicitação.
+
+Depois de gerar o Excel, o app pergunta se os itens devem ser marcados como **Solicitados**. Eles permanecem no histórico e podem ser devolvidos para **Para solicitar** se necessário.
+
+### Offline
+
+A lista de materiais para solicitação também é gravada primeiro no IndexedDB e sincronizada com o Firestore. O modelo Excel é armazenado no cache da PWA. O componente JSZip é carregado pelo jsDelivr e armazenado pelo service worker após a primeira execução online da v0.5.0; portanto, para garantir exportação offline, abra a versão uma vez com internet antes de depender dela sem conexão.
+
+## Publicação
+
+Use a pasta fixa do repositório local e copie apenas os arquivos desta versão para ela, sem substituir a pasta `.git`.
+
+Diretório recomendado já adotado no projeto:
+
+`C:\MGP\mgp-daily`

@@ -1,7 +1,7 @@
-const APP_VERSION = '0.4.0';
+const APP_VERSION = '0.5.0';
 const AUTHORIZED_UID = 'r7phpAeSu2TKzettmItVRC6qZ6j2';
 const DB_NAME = 'mgp-daily-db';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const FIREBASE_VERSION = '12.17.1';
 const FIREBASE_CONFIG = {
   apiKey: 'AIzaSyD641XWCUceDF02Dv1TSlumZV2s4XB81ms',
@@ -37,6 +37,8 @@ const state = {
   tab: 'today',
   tasks: [],
   materials: [],
+  purchaseItems: [],
+  materialsSection: 'stock',
   firebaseConfigured: false,
   user: null,
   accessGranted: false,
@@ -53,6 +55,7 @@ const cloud = {
   api: null,
   unsubscribeTasks: null,
   unsubscribeMaterials: null,
+  unsubscribePurchaseItems: null,
 };
 
 const uid = () => crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -63,7 +66,7 @@ function openDb() {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
-      for (const store of ['tasks', 'materials', 'syncQueue']) {
+      for (const store of ['tasks', 'materials', 'purchaseItems', 'syncQueue']) {
         if (!db.objectStoreNames.contains(store)) db.createObjectStore(store, { keyPath: 'id' });
       }
     };
@@ -121,7 +124,7 @@ async function enqueueSync(operation) {
 
 async function put(store, value, { sync = true } = {}) {
   await putLocal(store, value);
-  if (sync && ['tasks', 'materials'].includes(store)) {
+  if (sync && ['tasks', 'materials', 'purchaseItems'].includes(store)) {
     await enqueueSync({ type: 'put', store, record: value });
     scheduleSync();
   }
@@ -129,7 +132,7 @@ async function put(store, value, { sync = true } = {}) {
 
 async function del(store, id, { sync = true } = {}) {
   await delLocal(store, id);
-  if (sync && ['tasks', 'materials'].includes(store)) {
+  if (sync && ['tasks', 'materials', 'purchaseItems'].includes(store)) {
     await enqueueSync({ type: 'delete', store, recordId: id });
     scheduleSync();
   }
@@ -138,6 +141,7 @@ async function del(store, id, { sync = true } = {}) {
 async function refresh({ renderNow = true } = {}) {
   state.tasks = await all('tasks');
   state.materials = await all('materials');
+  state.purchaseItems = await all('purchaseItems');
   if (renderNow) render();
 }
 
@@ -241,6 +245,7 @@ function card(task, { deleteButton = false, pendingContext = false } = {}) {
     <div class="task-actions">
       ${canStart ? `<button class="primary-btn" data-start="${task.id}">▶ ${task.status === 'interrupted' ? 'Retomar agora' : 'Iniciar'}</button>` : ''}
       ${pendingContext ? pendingAction : ''}
+      ${task.status === 'waitingMaterial' ? `<button class="secondary-btn" data-add-request-task="${task.id}">＋ Anotar material</button>` : ''}
       ${task.status === 'inProgress' ? `<button class="secondary-btn" data-interrupt="${task.id}">Pausar</button><button class="success-btn" data-complete="${task.id}">Concluir</button>` : ''}
       ${!pendingContext && !['completed', 'waitingMaterial'].includes(task.status) ? `<button class="text-btn" data-block="waitingMaterial:${task.id}">Falta material</button>` : ''}
       ${!pendingContext && !['completed', 'waitingEnvironment'].includes(task.status) ? `<button class="text-btn" data-block="waitingEnvironment:${task.id}">Ambiente ocupado</button>` : ''}
@@ -307,9 +312,33 @@ function materialState(material) {
   return material.quantity <= 0 ? 'out' : material.quantity <= material.minimum ? 'low' : 'ok';
 }
 
-function materialsView() {
+function purchaseItemStatusLabel(status) {
+  return status === 'requested' ? 'Solicitado' : 'Para solicitar';
+}
+
+function purchaseItemsView() {
+  const pending = state.purchaseItems.filter((item) => item.status !== 'requested').sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  const requested = state.purchaseItems.filter((item) => item.status === 'requested').sort((a, b) => new Date(b.requestedAt || b.updatedAt || b.createdAt) - new Date(a.requestedAt || a.updatedAt || a.createdAt));
+  return `<div class="purchase-panel">
+    <div class="purchase-toolbar"><div><span class="eyebrow">PEDIDO DE COMPRAS</span><h2>Materiais para solicitação</h2><p>Anote durante o dia. Quando chegar o momento do pedido, gere a planilha oficial já preenchida.</p></div><div class="purchase-toolbar-actions"><button class="secondary-btn" id="newPurchaseItem">＋ Anotar material</button><button class="primary-btn" id="generatePurchaseExcel" ${pending.length ? '' : 'disabled'}>Gerar Excel</button></div></div>
+    <div class="material-summary">${stat(pending.length, 'Para solicitar', pending.length ? 'warning' : 'success')}${stat(requested.length, 'Solicitados', 'info')}${stat(Math.max(0, 29 - pending.length), 'Linhas livres')}</div>
+    <section class="purchase-section"><div class="section-head"><div><h3>Para solicitar</h3><p>Itens ainda não enviados ao setor de compras.</p></div><span class="count-pill">${pending.length}</span></div>${pending.length ? pending.map((item) => purchaseItemCard(item)).join('') : `<div class="pending-empty">Nenhum material aguardando solicitação.</div>`}</section>
+    <section class="purchase-section requested-section"><div class="section-head"><div><h3>Solicitados</h3><p>Histórico dos itens que já entraram em um pedido.</p></div><span class="count-pill">${requested.length}</span></div>${requested.length ? requested.slice(0, 40).map((item) => purchaseItemCard(item, { requested: true })).join('') : `<div class="pending-empty">Nenhum item solicitado ainda.</div>`}</section>
+  </div>`;
+}
+
+function purchaseItemCard(item, { requested = false } = {}) {
+  const linkedTask = item.taskId ? state.tasks.find((task) => task.id === item.taskId) : null;
+  return `<article class="purchase-card"><div class="purchase-card-main"><div class="badge-row"><span class="status-badge">${purchaseItemStatusLabel(item.status)}</span>${item.requestNumber ? `<span class="request-number">Solicitação ${esc(item.requestNumber)}</span>` : ''}</div><strong>${esc(item.productService)}</strong><span>${item.quantity} · ${esc(item.specification || 'Sem especificação')}</span>${linkedTask ? `<small>Relacionado a: ${esc(linkedTask.title)} · ${esc(linkedTask.location)}</small>` : ''}${item.requestedAt ? `<small>Solicitado em ${new Date(item.requestedAt).toLocaleDateString('pt-BR')}</small>` : ''}</div><div class="material-actions">${requested ? `<button class="text-btn" data-reopen-purchase="${item.id}">Voltar para pendentes</button>` : `<button class="text-btn" data-edit-purchase="${item.id}">Editar</button><button class="text-btn danger-text" data-delete-purchase="${item.id}">Excluir</button>`}</div></article>`;
+}
+
+function stockMaterialsView() {
   const materials = [...state.materials].sort((a, b) => ({ out: 0, low: 1, ok: 2 })[materialState(a)] - ({ out: 0, low: 1, ok: 2 })[materialState(b)]);
-  return `<section class="section flush"><div class="section-head"><div><span class="eyebrow">ESTOQUE OPERACIONAL</span><h2>Essenciais</h2></div><button class="secondary-btn" id="newMaterial">＋ Material</button></div><div class="material-summary">${stat(materials.filter((m) => materialState(m) === 'out').length, 'Acabou', 'danger')}${stat(materials.filter((m) => materialState(m) === 'low').length, 'Baixo', 'warning')}${stat(materials.filter((m) => materialState(m) === 'ok').length, 'OK', 'success')}</div>${materials.length ? materials.map((m) => `<div class="material-card"><div><strong>${esc(m.name)}</strong><span>${m.quantity} ${esc(m.unit)} · mínimo ${m.minimum}</span></div><div class="material-actions"><span class="stock-badge ${materialState(m)}">${materialState(m) === 'out' ? 'Acabou' : materialState(m) === 'low' ? 'Baixo' : 'OK'}</span><button class="text-btn" data-edit-material="${m.id}">Editar</button></div></div>`).join('') : empty('Sem materiais cadastrados', 'Cadastre somente os itens essenciais que você precisa acompanhar.')}</section>`;
+  return `<div class="stock-panel"><div class="section-head"><div><span class="eyebrow">ESTOQUE OPERACIONAL</span><h2>Essenciais</h2></div><button class="secondary-btn" id="newMaterial">＋ Material</button></div><div class="material-summary">${stat(materials.filter((m) => materialState(m) === 'out').length, 'Acabou', 'danger')}${stat(materials.filter((m) => materialState(m) === 'low').length, 'Baixo', 'warning')}${stat(materials.filter((m) => materialState(m) === 'ok').length, 'OK', 'success')}</div>${materials.length ? materials.map((m) => `<div class="material-card"><div><strong>${esc(m.name)}</strong><span>${m.quantity} ${esc(m.unit)} · mínimo ${m.minimum}</span></div><div class="material-actions"><span class="stock-badge ${materialState(m)}">${materialState(m) === 'out' ? 'Acabou' : materialState(m) === 'low' ? 'Baixo' : 'OK'}</span><button class="text-btn" data-edit-material="${m.id}">Editar</button></div></div>`).join('') : empty('Sem materiais cadastrados', 'Cadastre somente os itens essenciais que você precisa acompanhar.')}</div>`;
+}
+
+function materialsView() {
+  return `<section class="section flush"><div class="materials-switch"><button class="chip ${state.materialsSection === 'stock' ? 'selected' : ''}" data-material-section="stock">Estoque essencial</button><button class="chip ${state.materialsSection === 'requests' ? 'selected' : ''}" data-material-section="requests">Para solicitar <span class="mini-count">${state.purchaseItems.filter((item) => item.status !== 'requested').length}</span></button></div>${state.materialsSection === 'requests' ? purchaseItemsView() : stockMaterialsView()}</section>`;
 }
 
 function historyView() {
@@ -384,8 +413,15 @@ function bind() {
       await refresh();
     }
   }));
+  document.querySelectorAll('[data-material-section]').forEach((button) => (button.onclick = () => { state.materialsSection = button.dataset.materialSection; render(); }));
   document.querySelector('#newMaterial')?.addEventListener('click', () => materialModal());
   document.querySelectorAll('[data-edit-material]').forEach((button) => (button.onclick = () => materialModal(state.materials.find((m) => m.id === button.dataset.editMaterial))));
+  document.querySelector('#newPurchaseItem')?.addEventListener('click', () => purchaseItemModal());
+  document.querySelector('#generatePurchaseExcel')?.addEventListener('click', purchaseExportModal);
+  document.querySelectorAll('[data-edit-purchase]').forEach((button) => (button.onclick = () => purchaseItemModal(state.purchaseItems.find((item) => item.id === button.dataset.editPurchase))));
+  document.querySelectorAll('[data-delete-purchase]').forEach((button) => (button.onclick = async () => { const item = state.purchaseItems.find((entry) => entry.id === button.dataset.deletePurchase); if (item && confirm(`Excluir "${item.productService}" da lista de solicitação?`)) { await del('purchaseItems', item.id); await refresh(); } }));
+  document.querySelectorAll('[data-reopen-purchase]').forEach((button) => (button.onclick = async () => { const item = state.purchaseItems.find((entry) => entry.id === button.dataset.reopenPurchase); if (!item) return; await put('purchaseItems', { ...item, status: 'pending', requestNumber: '', requestedAt: '', requestDate: '', usageDate: '', updatedAt: now() }); await refresh(); toast('Item devolvido para Para solicitar.'); }));
+  document.querySelectorAll('[data-add-request-task]').forEach((button) => (button.onclick = () => { const task = state.tasks.find((entry) => entry.id === button.dataset.addRequestTask); purchaseItemModal(null, task); }));
   document.querySelector('#exportBtn')?.addEventListener('click', exportBackup);
   document.querySelector('#importBtn')?.addEventListener('click', importBackup);
 }
@@ -584,8 +620,54 @@ function materialModal(material) {
   };
 }
 
+function purchaseItemModal(item = null, task = null) {
+  const linkedTask = task || (item?.taskId ? state.tasks.find((entry) => entry.id === item.taskId) : null);
+  const el = modalShell(`<form class="modal"><div class="modal-head"><div><span class="eyebrow">SOLICITAÇÃO DE MATERIAL</span><h2>${item ? 'Editar item' : 'Anotar material'}</h2></div><button type="button" class="icon-btn subtle close">×</button></div>${linkedTask ? `<div class="linked-task-box"><span>Relacionado à tarefa</span><strong>${esc(linkedTask.title)}</strong><small>${esc(linkedTask.location)}</small></div>` : ''}<label>Produto/Serviço<input name="productService" required value="${esc(item?.productService || '')}" placeholder="Ex.: Painel LED de Embutir 18W"></label><label>Quantidade<input name="quantity" type="number" min="0.01" step="0.01" required value="${item?.quantity ?? 1}" placeholder="Ex.: 5"></label><label>Especificação<textarea name="specification" rows="3" required placeholder="Ex.: Quadrado, bivolt, luz branco neutro">${esc(item?.specification || '')}</textarea></label><div class="modal-actions"><button type="button" class="secondary-btn close">Cancelar</button><button class="primary-btn">Salvar na lista</button></div></form>`);
+  el.querySelectorAll('.close').forEach((button) => (button.onclick = () => el.remove()));
+  el.querySelector('form').onsubmit = async (event) => { event.preventDefault(); const form = new FormData(event.target); await put('purchaseItems', { id: item?.id || uid(), productService: form.get('productService').trim(), quantity: Number(form.get('quantity')) || 1, specification: form.get('specification').trim(), status: item?.status || 'pending', taskId: linkedTask?.id || item?.taskId || '', createdAt: item?.createdAt || now(), updatedAt: now(), requestNumber: item?.requestNumber || '', requestedAt: item?.requestedAt || '', requestDate: item?.requestDate || '', usageDate: item?.usageDate || '' }); el.remove(); state.materialsSection = 'requests'; await refresh(); toast(item ? 'Item atualizado.' : 'Material anotado para a próxima solicitação.'); };
+}
+
+function localDateInputValue(date = new Date()) { const pad = (value) => String(value).padStart(2, '0'); return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`; }
+
+function purchaseExportModal() {
+  const pending = state.purchaseItems.filter((item) => item.status !== 'requested').sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  if (!pending.length) { toast('Não há materiais pendentes para exportar.'); return; }
+  const el = modalShell(`<form class="modal purchase-export-modal"><div class="modal-head"><div><span class="eyebrow">GERAR PEDIDO DE COMPRA</span><h2>Exportar planilha oficial</h2></div><button type="button" class="icon-btn subtle close">×</button></div><div class="form-grid"><label>Data<input name="requestDate" type="date" required value="${localDateInputValue()}"></label><label>Nº da solicitação<input name="requestNumber" required inputmode="numeric" placeholder="Ex.: 104"></label></div><label>Data da utilização<input name="usageDate" type="date" required value="${localDateInputValue()}"></label><div class="excel-template-note"><strong>Modelo oficial</strong><span>Preenche DATA, Nº DA SOLICITAÇÃO, PRODUTO/SERVIÇO, QUANTIDADE, ESPECIFICAÇÃO e DATA DA UTILIZAÇÃO.</span></div><div class="export-selection-head"><strong>Materiais do pedido</strong><span>Máximo de 29 itens por planilha</span></div><div class="export-items">${pending.map((item, index) => `<label class="export-item"><input type="checkbox" name="purchaseItem" value="${item.id}" ${index < 29 ? 'checked' : ''}><span><strong>${esc(item.productService)}</strong><small>${item.quantity} · ${esc(item.specification)}</small></span></label>`).join('')}</div>${pending.length > 29 ? `<div class="limit-warning">Existem ${pending.length} itens pendentes. Apenas 29 podem ser enviados em cada planilha.</div>` : ''}<div class="modal-actions"><button type="button" class="secondary-btn close">Cancelar</button><button class="primary-btn" type="submit">Gerar Excel</button></div></form>`);
+  el.querySelectorAll('.close').forEach((button) => (button.onclick = () => el.remove()));
+  const formEl = el.querySelector('form');
+  formEl.addEventListener('change', () => { const checked = [...formEl.querySelectorAll('input[name="purchaseItem"]:checked')]; if (checked.length > 29) { checked[checked.length - 1].checked = false; toast('A planilha aceita no máximo 29 itens.'); } });
+  formEl.onsubmit = async (event) => { event.preventDefault(); const form = new FormData(formEl); const selectedIds = form.getAll('purchaseItem'); if (!selectedIds.length) { alert('Selecione pelo menos um material.'); return; } if (selectedIds.length > 29) { alert('Selecione no máximo 29 materiais por solicitação.'); return; } const selected = selectedIds.map((id) => state.purchaseItems.find((item) => item.id === id)).filter(Boolean); const requestDate = form.get('requestDate'); const requestNumber = form.get('requestNumber').trim(); const usageDate = form.get('usageDate'); try { await generatePurchaseWorkbook({ items: selected, requestDate, requestNumber, usageDate }); const shouldMark = confirm('Excel gerado. Deseja marcar os itens exportados como Solicitados?'); if (shouldMark) { const timestamp = now(); for (const item of selected) await put('purchaseItems', { ...item, status: 'requested', requestNumber, requestDate, usageDate, requestedAt: timestamp, updatedAt: timestamp }); await refresh(); } el.remove(); toast('Planilha de pedido gerada.'); } catch (error) { console.error(error); alert(`Não foi possível gerar o Excel: ${error.message || error}`); } };
+}
+
+function excelSerialFromDate(value) { const [year, month, day] = String(value).split('-').map(Number); return Math.round((Date.UTC(year, month - 1, day) - Date.UTC(1899, 11, 30)) / 86400000); }
+function xmlEscape(value) { return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;'); }
+function setWorksheetCell(xml, address, value, type = 'text') {
+  const escapedAddress = address.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`<c([^>]*\\br="${escapedAddress}"[^>]*)\\/>|<c([^>]*\\br="${escapedAddress}"[^>]*)>([\\s\\S]*?)<\\/c>`, 'i');
+  const match = xml.match(pattern);
+  if (!match) throw new Error(`Célula ${address} não encontrada no modelo.`);
+  const attrs = (match[1] || match[2]).replace(/\s+t="[^"]*"/g, '');
+  const replacement = value === '' || value === null || value === undefined
+    ? `<c${attrs}/>`
+    : type === 'number'
+      ? `<c${attrs}><v>${Number(value)}</v></c>`
+      : `<c${attrs} t="inlineStr"><is><t xml:space="preserve">${xmlEscape(value)}</t></is></c>`;
+  return xml.replace(pattern, replacement);
+}
+async function generatePurchaseWorkbook({ items, requestDate, requestNumber, usageDate }) {
+  if (typeof JSZip === 'undefined') throw new Error('Componente de Excel não carregado. Abra o app conectado à internet uma vez e tente novamente.');
+  const templateResponse = await fetch('./assets/pedido-compras-template.xlsx'); if (!templateResponse.ok) throw new Error('Modelo de pedido de compras não encontrado.');
+  const zip = await JSZip.loadAsync(await templateResponse.arrayBuffer()); const sheetFile = zip.file('xl/worksheets/sheet1.xml'); if (!sheetFile) throw new Error('Planilha Plan1 não encontrada no modelo.'); let xml = await sheetFile.async('string');
+  xml = setWorksheetCell(xml, 'I5', excelSerialFromDate(requestDate), 'number');
+  xml = /^\d+$/.test(requestNumber) ? setWorksheetCell(xml, 'K5', Number(requestNumber), 'number') : setWorksheetCell(xml, 'K5', requestNumber, 'text');
+  for (let row = 10; row <= 38; row += 1) { xml = setWorksheetCell(xml, `E${row}`, '', 'text'); xml = setWorksheetCell(xml, `F${row}`, '', 'number'); xml = setWorksheetCell(xml, `H${row}`, '', 'text'); xml = setWorksheetCell(xml, `K${row}`, '', 'number'); }
+  items.forEach((item, index) => { const row = 10 + index; xml = setWorksheetCell(xml, `E${row}`, item.productService, 'text'); xml = setWorksheetCell(xml, `F${row}`, item.quantity, 'number'); xml = setWorksheetCell(xml, `H${row}`, item.specification, 'text'); xml = setWorksheetCell(xml, `K${row}`, excelSerialFromDate(usageDate), 'number'); });
+  zip.file('xl/worksheets/sheet1.xml', xml); const blob = await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', compression: 'DEFLATE' });
+  const safeNumber = requestNumber.replace(/[^\w.-]+/g, '-'); const anchor = document.createElement('a'); anchor.href = URL.createObjectURL(blob); anchor.download = `PEDIDO DE COMPRAS - ${safeNumber || requestDate}.xlsx`; anchor.click(); setTimeout(() => URL.revokeObjectURL(anchor.href), 1500);
+}
+
 async function exportBackup() {
-  const data = { version: APP_VERSION, exportedAt: now(), tasks: state.tasks, materials: state.materials };
+  const data = { version: APP_VERSION, exportedAt: now(), tasks: state.tasks, materials: state.materials, purchaseItems: state.purchaseItems };
   const anchor = document.createElement('a');
   anchor.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
   anchor.download = `mgp-daily-backup-${new Date().toISOString().slice(0, 10)}.json`;
@@ -603,10 +685,14 @@ function importBackup() {
       if (!Array.isArray(data.tasks) || !Array.isArray(data.materials)) throw new Error('Formato inválido');
       await clearLocal('tasks');
       await clearLocal('materials');
+      await clearLocal('purchaseItems');
+      const purchaseItems = Array.isArray(data.purchaseItems) ? data.purchaseItems : [];
       for (const task of data.tasks) await putLocal('tasks', task);
       for (const material of data.materials) await putLocal('materials', material);
+      for (const item of purchaseItems) await putLocal('purchaseItems', item);
       await enqueueSync({ type: 'replaceAll', store: 'tasks', records: data.tasks });
       await enqueueSync({ type: 'replaceAll', store: 'materials', records: data.materials });
+      await enqueueSync({ type: 'replaceAll', store: 'purchaseItems', records: purchaseItems });
       await refresh();
       scheduleSync();
       toast('Backup restaurado.');
@@ -659,6 +745,7 @@ function accountModal() {
         state.accessGranted = false;
         await clearLocal('tasks');
         await clearLocal('materials');
+        await clearLocal('purchaseItems');
         await clearLocal('syncQueue');
         await refresh();
         el.remove();
@@ -795,8 +882,10 @@ async function initFirebase() {
 function stopCloudListeners() {
   cloud.unsubscribeTasks?.();
   cloud.unsubscribeMaterials?.();
+  cloud.unsubscribePurchaseItems?.();
   cloud.unsubscribeTasks = null;
   cloud.unsubscribeMaterials = null;
+  cloud.unsubscribePurchaseItems = null;
 }
 
 function userCollection(store) {
@@ -812,7 +901,7 @@ async function mergeCloudAndLocal() {
   const pending = await all('syncQueue');
   const pendingDeletes = new Set(pending.filter((op) => op.type === 'delete').map((op) => `${op.store}:${op.recordId}`));
 
-  for (const store of ['tasks', 'materials']) {
+  for (const store of ['tasks', 'materials', 'purchaseItems']) {
     const localRecords = await all(store);
     const localMap = new Map(localRecords.map((record) => [record.id, record]));
     const snapshot = await cloud.api.getDocs(userCollection(store));
@@ -923,6 +1012,14 @@ function startCloudListeners() {
     }
     await refresh();
   }, (error) => console.error('materials listener', error));
+
+  cloud.unsubscribePurchaseItems = cloud.api.onSnapshot(userCollection('purchaseItems'), async (snapshot) => {
+    for (const change of snapshot.docChanges()) {
+      if (change.type === 'removed') await delLocal('purchaseItems', change.doc.id);
+      else await putLocal('purchaseItems', { ...change.doc.data(), id: change.doc.id });
+    }
+    await refresh();
+  }, (error) => console.error('purchaseItems listener', error));
 }
 
 async function warmFirebaseCache() {
