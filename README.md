@@ -1,4 +1,4 @@
-# MGP Daily v0.2.3 — Firebase pré-configurado
+# MGP Daily v0.3.0 — Firebase pré-configurado
 
 PWA pessoal de manutenção predial, restrita ao UID autorizado.
 
@@ -26,3 +26,11 @@ O app aceita somente o UID autorizado. As regras do Firestore repetem a mesma re
 ## Offline
 
 As alterações são gravadas primeiro no IndexedDB. Quando a internet retorna e a sessão está autenticada, a fila local é sincronizada com o Firestore.
+
+
+## Novidades da v0.3.0
+
+- Campo **Tempo indeterminado** para tarefas cuja duração não pode ser prevista.
+- Quando marcado, o campo de minutos é desativado e a tarefa exibe **Tempo indeterminado**.
+- Tarefas antigas continuam compatíveis e mantêm seus tempos estimados.
+- Mantidos login exclusivo, Firestore e sincronização offline.

@@ -1,4 +1,4 @@
-MGP DAILY v0.2.3 — CHECKLIST FIREBASE
+MGP DAILY v0.3.0 — CHECKLIST FIREBASE
 
 [x] Projeto Firebase criado
 [x] App Web registrado

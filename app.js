@@ -1,4 +1,4 @@
-const APP_VERSION = '0.2.3';
+const APP_VERSION = '0.3.0';
 const AUTHORIZED_UID = 'r7phpAeSu2TKzettmItVRC6qZ6j2';
 const DB_NAME = 'mgp-daily-db';
 const DB_VERSION = 2;
@@ -201,7 +201,7 @@ function card(task, { deleteButton = false } = {}) {
       <div>
         <div class="badge-row"><span class="priority-badge ${pm.tone}">${pm.label}</span><span class="status-badge">${statusMeta[task.status]}</span></div>
         <h3>${esc(task.title)}</h3>
-        <p>${esc(task.location)} · ${esc(task.category)} · ${task.estimatedMinutes} min</p>
+        <p>${esc(task.location)} · ${esc(task.category)} · ${task.indefiniteEstimate ? 'Tempo indeterminado' : `${task.estimatedMinutes} min`}</p>
         ${task.interruptionReason ? `<p class="reason">Motivo: ${esc(task.interruptionReason)}</p>` : ''}
       </div>
       <button class="kebab" data-edit="${task.id}">•••</button>
@@ -340,8 +340,17 @@ function modalShell(inner) {
 }
 
 function taskModal(task) {
-  const el = modalShell(`<form class="modal"><div class="modal-head"><div><span class="eyebrow">${task ? 'EDITAR' : 'NOVA'}</span><h2>${task ? 'Tarefa' : 'Nova tarefa'}</h2></div><button type="button" class="icon-btn subtle close">×</button></div><label>Título<input name="title" required value="${esc(task?.title || '')}" placeholder="Ex.: Trocar luminária"></label><label>Local<input name="location" required value="${esc(task?.location || '')}" placeholder="Ex.: Biblioteca"></label><div class="form-grid"><label>Categoria<select name="category">${categories.map((c) => `<option ${task?.category === c ? 'selected' : ''}>${c}</option>`).join('')}</select></label><label>Prioridade<select name="priority">${Object.entries(priorityMeta).map(([value, meta]) => `<option value="${value}" ${(task?.priority || 'medium') === value ? 'selected' : ''}>${meta.label}</option>`).join('')}</select></label></div><label>Tempo estimado (min)<input name="estimatedMinutes" type="number" min="1" value="${task?.estimatedMinutes || 20}"></label><label>Observação<textarea name="notes" rows="3" placeholder="Detalhes úteis para retomar depois...">${esc(task?.notes || '')}</textarea></label><div class="modal-actions"><button type="button" class="secondary-btn close">Cancelar</button><button class="primary-btn">Salvar tarefa</button></div></form>`);
+  const el = modalShell(`<form class="modal"><div class="modal-head"><div><span class="eyebrow">${task ? 'EDITAR' : 'NOVA'}</span><h2>${task ? 'Tarefa' : 'Nova tarefa'}</h2></div><button type="button" class="icon-btn subtle close">×</button></div><label>Título<input name="title" required value="${esc(task?.title || '')}" placeholder="Ex.: Trocar luminária"></label><label>Local<input name="location" required value="${esc(task?.location || '')}" placeholder="Ex.: Biblioteca"></label><div class="form-grid"><label>Categoria<select name="category">${categories.map((c) => `<option ${task?.category === c ? 'selected' : ''}>${c}</option>`).join('')}</select></label><label>Prioridade<select name="priority">${Object.entries(priorityMeta).map(([value, meta]) => `<option value="${value}" ${(task?.priority || 'medium') === value ? 'selected' : ''}>${meta.label}</option>`).join('')}</select></label></div><label>Tempo estimado (min)<input name="estimatedMinutes" type="number" min="1" value="${task?.indefiniteEstimate ? '' : (task?.estimatedMinutes || 20)}" ${task?.indefiniteEstimate ? 'disabled' : ''}></label><label class="check-row"><input name="indefiniteEstimate" type="checkbox" ${task?.indefiniteEstimate ? 'checked' : ''}><span>Tempo indeterminado</span></label><label>Observação<textarea name="notes" rows="3" placeholder="Detalhes úteis para retomar depois...">${esc(task?.notes || '')}</textarea></label><div class="modal-actions"><button type="button" class="secondary-btn close">Cancelar</button><button class="primary-btn">Salvar tarefa</button></div></form>`);
   el.querySelectorAll('.close').forEach((button) => (button.onclick = () => el.remove()));
+  const estimateInput = el.querySelector('[name="estimatedMinutes"]');
+  const indefiniteInput = el.querySelector('[name="indefiniteEstimate"]');
+  const syncEstimateState = () => {
+    estimateInput.disabled = indefiniteInput.checked;
+    if (indefiniteInput.checked) estimateInput.value = '';
+    else if (!estimateInput.value) estimateInput.value = '20';
+  };
+  indefiniteInput.addEventListener('change', syncEstimateState);
+  syncEstimateState();
   el.querySelector('form').onsubmit = async (event) => {
     event.preventDefault();
     const form = new FormData(event.target);
@@ -352,7 +361,8 @@ function taskModal(task) {
       location: form.get('location').trim(),
       category: form.get('category'),
       priority: form.get('priority'),
-      estimatedMinutes: Number(form.get('estimatedMinutes')) || 15,
+      indefiniteEstimate: form.get('indefiniteEstimate') === 'on',
+      estimatedMinutes: form.get('indefiniteEstimate') === 'on' ? null : (Number(form.get('estimatedMinutes')) || 15),
       notes: form.get('notes').trim(),
       status: existing.status || 'planned',
       createdAt: existing.createdAt || now(),
