@@ -8,3 +8,14 @@
 .emergency-notice{margin-top:18px;background:#fff7f6;border:1px solid #f7b9b4;border-left:5px solid #d92d20;border-radius:18px;padding:16px 18px;display:flex;align-items:center;justify-content:space-between;gap:16px;box-shadow:0 8px 22px rgba(180,35,24,.06)}
 .emergency-notice>div:first-child{display:flex;flex-direction:column;gap:4px}.emergency-notice strong{font-size:16px}.emergency-notice span:not(.eyebrow){color:#6f4b48;font-size:13px}.emergency-actions{display:flex;gap:8px;flex-wrap:wrap}.danger-btn{border:0;cursor:pointer;background:#b42318;color:#fff;border-radius:12px;padding:10px 14px;font-weight:800}.danger-btn:hover{background:#912018}.emergency-summary,.current-task-summary{border:1px solid var(--line);border-radius:14px;padding:13px 14px;margin-bottom:12px;display:flex;flex-direction:column;gap:3px}.emergency-summary{background:#fff7f6;border-color:#f7c1bc}.emergency-summary span,.current-task-summary span,.current-task-summary small{color:var(--muted);font-size:12px}.decision-copy{color:#51657c;line-height:1.5;font-size:13px}.emergency-modal .modal-head{margin-bottom:12px}
 @media(max-width:650px){.emergency-notice{align-items:flex-start;flex-direction:column}.emergency-actions{width:100%}.emergency-actions button{flex:1}.danger-btn{padding:9px 11px}}
+
+
+/* v0.4.0 — Central de Pendências */
+.pending-shortcut{display:flex;align-items:center;justify-content:space-between;gap:18px;background:#f8fafc;border:1px solid var(--line)}
+.pending-shortcut h2{margin:3px 0 5px}.pending-shortcut p{margin:0;color:var(--muted);font-size:13px;line-height:1.45}
+.pending-overview{background:#fff;border:1px solid var(--line);border-radius:20px;padding:18px;margin-bottom:18px;display:grid;grid-template-columns:minmax(220px,1fr) minmax(340px,1.35fr);gap:20px;align-items:center}
+.pending-overview h2{margin:4px 0 5px}.pending-overview p{margin:0;color:var(--muted);font-size:13px;line-height:1.5}
+.pending-mini-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.pending-group{margin-bottom:22px}.pending-head{margin-bottom:10px}.pending-head h2{margin:0 0 3px}.pending-head p{margin:0;color:var(--muted);font-size:12px}
+.pending-empty{border:1px dashed #cbd7e4;background:#fbfcfe;border-radius:14px;padding:16px;color:var(--muted);font-size:13px;text-align:center}
+@media(max-width:760px){.pending-overview{grid-template-columns:1fr}.pending-mini-stats{grid-template-columns:1fr 1fr}.pending-shortcut{align-items:flex-start;flex-direction:column}.pending-shortcut button{width:100%}}

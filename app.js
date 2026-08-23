@@ -1,4 +1,4 @@
-const APP_VERSION = '0.3.1';
+const APP_VERSION = '0.4.0';
 const AUTHORIZED_UID = 'r7phpAeSu2TKzettmItVRC6qZ6j2';
 const DB_NAME = 'mgp-daily-db';
 const DB_VERSION = 2;
@@ -217,8 +217,17 @@ function syncBadge() {
 
 function cloudSetupNotice() { return ''; }
 
-function card(task, { deleteButton = false } = {}) {
+function card(task, { deleteButton = false, pendingContext = false } = {}) {
   const pm = priorityMeta[task.priority];
+  const canStart = ['planned', 'interrupted'].includes(task.status);
+  const pendingAction = task.status === 'waitingMaterial'
+    ? `<button class="primary-btn" data-unblock="material:${task.id}">Material disponível</button>`
+    : task.status === 'waitingEnvironment'
+      ? `<button class="primary-btn" data-unblock="environment:${task.id}">Ambiente liberado</button>`
+      : task.status === 'saturday'
+        ? `<button class="primary-btn" data-saturday-now="${task.id}">Executar agora</button>`
+        : '';
+
   return `<article class="task-card ${task.status === 'inProgress' ? 'featured' : ''}">
     <div class="task-top">
       <div>
@@ -230,11 +239,12 @@ function card(task, { deleteButton = false } = {}) {
       <button class="kebab" data-edit="${task.id}">•••</button>
     </div>
     <div class="task-actions">
-      ${task.status !== 'inProgress' && task.status !== 'completed' ? `<button class="primary-btn" data-start="${task.id}">▶ ${task.status === 'interrupted' ? 'Retomar' : 'Iniciar'}</button>` : ''}
+      ${canStart ? `<button class="primary-btn" data-start="${task.id}">▶ ${task.status === 'interrupted' ? 'Retomar agora' : 'Iniciar'}</button>` : ''}
+      ${pendingContext ? pendingAction : ''}
       ${task.status === 'inProgress' ? `<button class="secondary-btn" data-interrupt="${task.id}">Pausar</button><button class="success-btn" data-complete="${task.id}">Concluir</button>` : ''}
-      ${!['completed', 'waitingMaterial'].includes(task.status) ? `<button class="text-btn" data-block="waitingMaterial:${task.id}">Falta material</button>` : ''}
-      ${!['completed', 'waitingEnvironment'].includes(task.status) ? `<button class="text-btn" data-block="waitingEnvironment:${task.id}">Ambiente ocupado</button>` : ''}
-      ${!['completed', 'saturday'].includes(task.status) ? `<button class="text-btn" data-block="saturday:${task.id}">Sábado</button>` : ''}
+      ${!pendingContext && !['completed', 'waitingMaterial'].includes(task.status) ? `<button class="text-btn" data-block="waitingMaterial:${task.id}">Falta material</button>` : ''}
+      ${!pendingContext && !['completed', 'waitingEnvironment'].includes(task.status) ? `<button class="text-btn" data-block="waitingEnvironment:${task.id}">Ambiente ocupado</button>` : ''}
+      ${!pendingContext && !['completed', 'saturday'].includes(task.status) ? `<button class="text-btn" data-block="saturday:${task.id}">Sábado</button>` : ''}
       ${task.status !== 'completed' && task.status !== 'inProgress' ? `<button class="text-btn success-text" data-complete="${task.id}">Concluir</button>` : ''}
       ${deleteButton ? `<button class="text-btn danger-text" data-delete="${task.id}">Excluir</button>` : ''}
     </div>
@@ -246,14 +256,15 @@ function todayView() {
   const ex = executable();
   const next = ex[0];
   const interrupted = a.filter((t) => t.status === 'interrupted');
-  const blocked = a.filter((t) => ['waitingMaterial', 'waitingEnvironment'].includes(t.status));
+  const blocked = a.filter((t) => ['waitingMaterial', 'waitingEnvironment', 'saturday'].includes(t.status));
+  const pendingCount = interrupted.length + blocked.length;
   const emergencyDecision = emergencyAwaitingDecision() || deferredEmergency();
   return `${cloudSetupNotice()}
     <section class="hero"><p class="muted">Controle primeiro o que realmente pode e deve ser feito.</p><div class="stats-grid">${stat(a.filter((t) => t.priority === 'emergency').length, 'Emergências', 'danger')}${stat(a.filter((t) => t.priority === 'high').length, 'Alta prioridade', 'warning')}${stat(interrupted.length, 'Interrompidas', 'violet')}${stat(a.filter((t) => t.status === 'waitingMaterial').length, 'Sem material')}</div></section>
     ${emergencyDecision ? emergencyDecisionNotice(emergencyDecision) : ''}
     <section class="section"><div class="section-head"><div><span class="eyebrow">PRÓXIMA MISSÃO</span><h2>O que fazer agora</h2></div></div>${next ? card(next) : empty('Nenhuma tarefa executável', 'Cadastre uma tarefa ou revise as atividades bloqueadas.')}</section>
     ${interrupted.length ? `<section class="section"><div class="section-head"><h2>Retomar</h2><span class="count-pill">${interrupted.length}</span></div>${interrupted.slice(0, 3).map((t) => card(t)).join('')}</section>` : ''}
-    ${blocked.length ? `<section class="section"><div class="section-head"><h2>Bloqueadas</h2><span class="count-pill">${blocked.length}</span></div>${blocked.slice(0, 3).map((t) => card(t)).join('')}</section>` : ''}`;
+    ${pendingCount ? `<section class="section pending-shortcut"><div><span class="eyebrow">PENDÊNCIAS</span><h2>${pendingCount} ${pendingCount === 1 ? 'item precisa' : 'itens precisam'} da sua atenção</h2><p>Materiais, ambientes, interrupções e serviços de sábado ficam organizados em um único lugar.</p></div><button class="secondary-btn" id="openPendencies">Abrir Central</button></section>` : ''}`;
 }
 
 function tasksView() {
@@ -261,9 +272,35 @@ function tasksView() {
   return `<section class="section flush"><div class="filter-row"><button class="chip selected">Todas</button><button class="chip">Ativas: ${active().length}</button><button class="chip">Concluídas: ${state.tasks.filter((t) => t.status === 'completed').length}</button></div>${sorted.length ? sorted.map((t) => card(t, { deleteButton: true })).join('') : empty('Sem tarefas', 'Crie sua primeira tarefa usando o botão +.')}</section>`;
 }
 
-function saturdayView() {
-  const tasks = state.tasks.filter((t) => t.status === 'saturday');
-  return `<section class="section flush"><div class="notice"><div><strong>Janela protegida</strong><span>Use o sábado para serviços que exigem ambiente desocupado, ruído ou bloqueio de área.</span></div></div>${tasks.length ? tasks.map((t) => card(t)).join('') : empty('Sábado livre', 'Nenhuma tarefa está programada para sábado.')}</section>`;
+function pendingGroup(title, description, tasks, emptyText) {
+  return `<section class="pending-group">
+    <div class="section-head pending-head"><div><h2>${title}</h2><p>${description}</p></div><span class="count-pill">${tasks.length}</span></div>
+    ${tasks.length ? tasks.map((t) => card(t, { pendingContext: true })).join('') : `<div class="pending-empty">${emptyText}</div>`}
+  </section>`;
+}
+
+function pendenciesView() {
+  const interrupted = state.tasks.filter((t) => t.status === 'interrupted');
+  const waitingMaterial = state.tasks.filter((t) => t.status === 'waitingMaterial');
+  const waitingEnvironment = state.tasks.filter((t) => t.status === 'waitingEnvironment');
+  const saturday = state.tasks.filter((t) => t.status === 'saturday');
+  const total = interrupted.length + waitingMaterial.length + waitingEnvironment.length + saturday.length;
+
+  return `<section class="section flush">
+    <div class="pending-overview">
+      <div><span class="eyebrow">CENTRAL DE PENDÊNCIAS</span><h2>${total ? `${total} ${total === 1 ? 'pendência' : 'pendências'}` : 'Tudo liberado'}</h2><p>Desbloqueie uma tarefa quando a condição real mudar. Nada volta para a Jornada sem sua confirmação.</p></div>
+      <div class="pending-mini-stats">
+        ${stat(interrupted.length, 'Interrompidas', 'violet')}
+        ${stat(waitingMaterial.length, 'Material', 'warning')}
+        ${stat(waitingEnvironment.length, 'Ambiente', 'info')}
+        ${stat(saturday.length, 'Sábado')}
+      </div>
+    </div>
+    ${pendingGroup('Interrompidas', 'Serviços que foram parados e precisam ser retomados conscientemente.', interrupted, 'Nenhum serviço interrompido.')}
+    ${pendingGroup('Aguardando material', 'Confirme quando o material estiver realmente disponível.', waitingMaterial, 'Nenhuma tarefa aguardando material.')}
+    ${pendingGroup('Aguardando ambiente', 'Libere somente quando o local estiver disponível para execução.', waitingEnvironment, 'Nenhuma tarefa aguardando ambiente.')}
+    ${pendingGroup('Sábado', 'Serviços reservados para ambiente desocupado, ruído ou bloqueio de área.', saturday, 'Nenhuma tarefa programada para sábado.')}
+  </section>`;
 }
 
 function materialState(material) {
@@ -297,14 +334,14 @@ function render() {
     bind();
     return;
   }
-  const titles = { today: 'Minha Jornada', tasks: 'Tarefas', saturday: 'Sábado', materials: 'Materiais', history: 'Histórico' };
+  const titles = { today: 'Minha Jornada', tasks: 'Tarefas', pendencies: 'Pendências', materials: 'Materiais', history: 'Histórico' };
   document.querySelector('#app').innerHTML = `<div class="app-shell">
     <header class="topbar">
       <div><div class="eyebrow">MGP Daily <span class="version">v${APP_VERSION}</span></div><h1>${titles[state.tab]}</h1></div>
       <div class="topbar-actions">${syncBadge()}<button class="icon-btn" id="newTask">＋</button></div>
     </header>
-    <main class="content">${state.tab === 'today' ? todayView() : state.tab === 'tasks' ? tasksView() : state.tab === 'saturday' ? saturdayView() : state.tab === 'materials' ? materialsView() : historyView()}</main>
-    <nav class="bottom-nav">${[['today', '⌂', 'Hoje'], ['tasks', '☷', 'Tarefas'], ['saturday', '◷', 'Sábado'], ['materials', '▣', 'Materiais'], ['history', '↺', 'Histórico']].map(([value, icon, label]) => `<button class="nav-btn ${state.tab === value ? 'active' : ''}" data-tab="${value}"><span class="nav-icon">${icon}</span><span>${label}</span></button>`).join('')}</nav>
+    <main class="content">${state.tab === 'today' ? todayView() : state.tab === 'tasks' ? tasksView() : state.tab === 'pendencies' ? pendenciesView() : state.tab === 'materials' ? materialsView() : historyView()}</main>
+    <nav class="bottom-nav">${[['today', '⌂', 'Hoje'], ['tasks', '☷', 'Tarefas'], ['pendencies', '!', 'Pendências'], ['materials', '▣', 'Materiais'], ['history', '↺', 'Histórico']].map(([value, icon, label]) => `<button class="nav-btn ${state.tab === value ? 'active' : ''}" data-tab="${value}"><span class="nav-icon">${icon}</span><span>${label}</span></button>`).join('')}</nav>
   </div>`;
   bind();
 }
@@ -323,6 +360,23 @@ function bind() {
     const [status, id] = button.dataset.block.split(':');
     transition(id, status, status === 'waitingMaterial' ? 'Aguardando material' : status === 'waitingEnvironment' ? 'Aguardando ambiente' : 'Programada para sábado');
   }));
+  document.querySelector('#openPendencies')?.addEventListener('click', () => { state.tab = 'pendencies'; render(); });
+  document.querySelectorAll('[data-unblock]').forEach((button) => (button.onclick = async () => {
+    const [kind, id] = button.dataset.unblock.split(':');
+    if (kind === 'material') {
+      await releasePendingTask(id, 'Material disponível; tarefa liberada para a Jornada', 'Material confirmado. Tarefa devolvida à Jornada.');
+    } else if (kind === 'environment') {
+      await releasePendingTask(id, 'Ambiente liberado; tarefa devolvida para a Jornada', 'Ambiente liberado. Tarefa devolvida à Jornada.');
+    }
+  }));
+  document.querySelectorAll('[data-saturday-now]').forEach((button) => (button.onclick = async () => {
+    const id = button.dataset.saturdayNow;
+    const task = state.tasks.find((t) => t.id === id);
+    if (!task) return;
+    await put('tasks', { ...task, status: 'planned', updatedAt: now(), history: [...(task.history || []), { at: now(), action: 'Janela de sábado liberada para execução' }] });
+    await refresh();
+    await startTask(id);
+  }));
   document.querySelectorAll('[data-delete]').forEach((button) => (button.onclick = async () => {
     const task = state.tasks.find((t) => t.id === button.dataset.delete);
     if (confirm(`Excluir "${task.title}"?`)) {
@@ -334,6 +388,31 @@ function bind() {
   document.querySelectorAll('[data-edit-material]').forEach((button) => (button.onclick = () => materialModal(state.materials.find((m) => m.id === button.dataset.editMaterial))));
   document.querySelector('#exportBtn')?.addEventListener('click', exportBackup);
   document.querySelector('#importBtn')?.addEventListener('click', importBackup);
+}
+
+async function releasePendingTask(id, action, message) {
+  const task = state.tasks.find((t) => t.id === id);
+  if (!task) return;
+  const running = state.tasks.find((t) => t.status === 'inProgress' && t.id !== id);
+  const timestamp = now();
+  const emergencyDecision = task.priority === 'emergency' && running ? 'pending' : (task.emergencyDecision || '');
+  const history = [...(task.history || []), { at: timestamp, action }];
+
+  if (task.priority === 'emergency' && running) {
+    history.push({ at: timestamp, action: `Emergência liberada e aguardando decisão enquanto "${running.title}" está em execução` });
+  }
+
+  await put('tasks', {
+    ...task,
+    status: 'planned',
+    interruptionReason: '',
+    emergencyDecision,
+    updatedAt: timestamp,
+    history,
+  });
+  await refresh();
+  toast(message);
+  if (emergencyDecision === 'pending') emergencyDecisionModal(id);
 }
 
 async function transition(id, status, action, extra = {}) {

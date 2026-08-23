@@ -1,4 +1,4 @@
-# MGP Daily v0.3.1
+# MGP Daily v0.4.0
 
 PWA pessoal para organizar a rotina de manutenção predial com foco em jornada diária, prioridades, bloqueios, materiais, histórico e sincronização offline com Firebase.
 
@@ -34,3 +34,15 @@ O app aceita somente o UID autorizado. As regras do Firestore repetem a mesma re
 ## Offline
 
 As alterações são gravadas primeiro no IndexedDB. Quando a internet retorna e a sessão está autenticada, a fila local é sincronizada com o Firestore.
+
+
+## v0.4.0 — Central de Pendências
+
+- Nova aba **Pendências** substitui a aba isolada de Sábado.
+- Agrupa **Interrompidas**, **Aguardando material**, **Aguardando ambiente** e **Sábado**.
+- `Retomar agora` para tarefas interrompidas.
+- `Material disponível` devolve a tarefa para `Planejada` e para a Jornada.
+- `Ambiente liberado` devolve a tarefa para `Planejada` e para a Jornada.
+- `Executar agora` inicia tarefas de sábado quando a janela de execução estiver disponível.
+- Nenhuma pendência é desbloqueada automaticamente por tempo: a mudança depende de confirmação explícita.
+- A tela Hoje ganha atalho para a Central sempre que houver pendências.
