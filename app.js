@@ -1,7 +1,5 @@
-const APP_VERSION = '0.5.0';
+const APP_VERSION = '1.0.0';
 const AUTHORIZED_UID = 'r7phpAeSu2TKzettmItVRC6qZ6j2';
-const DB_NAME = 'mgp-daily-db';
-const DB_VERSION = 3;
 const FIREBASE_VERSION = '12.17.1';
 const FIREBASE_CONFIG = {
   apiKey: 'AIzaSyD641XWCUceDF02Dv1TSlumZV2s4XB81ms',
@@ -11,704 +9,60 @@ const FIREBASE_CONFIG = {
   messagingSenderId: '851586835666',
   appId: '1:851586835666:web:4b2c7c2c7e4e5a3a35790b',
 };
-const VERIFIED_UID_KEY = 'mgpDailyVerifiedUid';
-
-const priorityMeta = {
-  emergency: { label: 'Emergência', weight: 4, tone: 'danger' },
-  high: { label: 'Alta', weight: 3, tone: 'warning' },
-  medium: { label: 'Média', weight: 2, tone: 'info' },
-  low: { label: 'Baixa', weight: 1, tone: 'neutral' },
-};
-
-const statusMeta = {
-  planned: 'Planejada',
-  inProgress: 'Em execução',
-  interrupted: 'Interrompida',
-  waitingMaterial: 'Aguardando material',
-  waitingEnvironment: 'Aguardando ambiente',
-  saturday: 'Sábado',
-  completed: 'Concluída',
-};
-
-const categories = ['Elétrica', 'Hidráulica', 'Pintura', 'Civil', 'Gesso', 'Marcenaria', 'Inspeção', 'Preventiva', 'Outro'];
-const interruptionReasons = ['Solicitação da gestão', 'Emergência', 'Falta de material', 'Ambiente ocupado', 'Terceiro', 'Fim do expediente', 'Outro'];
-
-const state = {
-  tab: 'today',
-  tasks: [],
-  materials: [],
-  purchaseItems: [],
-  materialsSection: 'stock',
-  firebaseConfigured: false,
-  user: null,
-  accessGranted: false,
-  syncStatus: 'local',
-  syncMessage: 'Somente neste dispositivo',
-};
-
-const cloud = {
-  initialized: false,
-  initializing: false,
-  app: null,
-  auth: null,
-  db: null,
-  api: null,
-  unsubscribeTasks: null,
-  unsubscribeMaterials: null,
-  unsubscribePurchaseItems: null,
-};
-
+const VERIFIED_UID_KEY = 'mgpDailyVerifiedUid'; // Mantém sessão já autorizada
+const DB_NAME = 'nexo-finance-db'; // Isola completamente os dados antigos
+const DB_VERSION = 1;
+const STORES = ['accounts','categories','transactions','cards'];
 const uid = () => crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const now = () => new Date().toISOString();
-
-function openDb() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      for (const store of ['tasks', 'materials', 'purchaseItems', 'syncQueue']) {
-        if (!db.objectStoreNames.contains(store)) db.createObjectStore(store, { keyPath: 'id' });
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-async function all(store) {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const request = db.transaction(store, 'readonly').objectStore(store).getAll();
-    request.onsuccess = () => resolve(request.result || []);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-async function putLocal(store, value) {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(store, 'readwrite');
-    tx.objectStore(store).put(value);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
-async function delLocal(store, id) {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(store, 'readwrite');
-    tx.objectStore(store).delete(id);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
-async function clearLocal(store) {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(store, 'readwrite');
-    tx.objectStore(store).clear();
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
-async function enqueueSync(operation) {
-  await putLocal('syncQueue', {
-    id: uid(),
-    queuedAt: now(),
-    ...operation,
-  });
-}
-
-async function put(store, value, { sync = true } = {}) {
-  await putLocal(store, value);
-  if (sync && ['tasks', 'materials', 'purchaseItems'].includes(store)) {
-    await enqueueSync({ type: 'put', store, record: value });
-    scheduleSync();
-  }
-}
-
-async function del(store, id, { sync = true } = {}) {
-  await delLocal(store, id);
-  if (sync && ['tasks', 'materials', 'purchaseItems'].includes(store)) {
-    await enqueueSync({ type: 'delete', store, recordId: id });
-    scheduleSync();
-  }
-}
-
-async function refresh({ renderNow = true } = {}) {
-  state.tasks = await all('tasks');
-  state.materials = await all('materials');
-  state.purchaseItems = await all('purchaseItems');
-  if (renderNow) render();
-}
-
-function active() {
-  return state.tasks.filter((t) => t.status !== 'completed');
-}
-
-function executable() {
-  return active()
-    .filter((t) => ['planned', 'interrupted', 'inProgress'].includes(t.status))
-    .sort((a, b) =>
-      a.status === 'inProgress'
-        ? -1
-        : b.status === 'inProgress'
-          ? 1
-          : priorityMeta[b.priority].weight - priorityMeta[a.priority].weight || new Date(a.createdAt) - new Date(b.createdAt),
-    );
-}
-
-function emergencyAwaitingDecision() {
-  return active().find((t) => t.priority === 'emergency' && t.status === 'planned' && t.emergencyDecision === 'pending');
-}
-
-function deferredEmergency() {
-  return active().find((t) => t.priority === 'emergency' && t.status === 'planned' && t.emergencyDecision === 'deferred');
-}
-
-function emergencyDecisionNotice(task) {
-  const pending = task.emergencyDecision === 'pending';
-  return `<section class="emergency-notice">
-    <div>
-      <span class="eyebrow">${pending ? 'DECISÃO NECESSÁRIA' : 'EMERGÊNCIA PENDENTE'}</span>
-      <strong>${pending ? 'Nova emergência enquanto há uma tarefa em execução' : 'Você optou por manter a tarefa atual'}</strong>
-      <span><b>${esc(task.title)}</b> · ${esc(task.location)}${pending ? ' precisa de uma decisão operacional.' : ' continua aguardando atendimento.'}</span>
-    </div>
-    <div class="emergency-actions">
-      <button class="danger-btn" data-emergency-assume="${task.id}">${pending ? 'Assumir emergência' : 'Assumir agora'}</button>
-      ${pending ? `<button class="secondary-btn" data-emergency-keep="${task.id}">Manter tarefa atual</button>` : ''}
-    </div>
-  </section>`;
-}
-
-function esc(value = '') {
-  return String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
-}
-
-function toast(message) {
-  let el = document.querySelector('.toast');
-  if (el) el.remove();
-  el = document.createElement('div');
-  el.className = 'toast';
-  el.textContent = message;
-  document.body.appendChild(el);
-  setTimeout(() => el.remove(), 2600);
-}
-
-function stat(value, label, tone = '') {
-  return `<div class="stat ${tone}"><strong>${value}</strong><span>${label}</span></div>`;
-}
-
-function empty(title, text) {
-  return `<div class="empty"><div class="empty-icon">✓</div><strong>${title}</strong><span>${text}</span></div>`;
-}
-
-function syncBadge() {
-  const status = navigator.onLine ? state.syncStatus : 'offline';
-  const meta = {
-    local: ['Local', 'cloud-local'],
-    connecting: ['Conectando', 'cloud-working'],
-    syncing: ['Sincronizando', 'cloud-working'],
-    synced: ['Nuvem OK', 'cloud-ok'],
-    offline: ['Offline', 'cloud-offline'],
-    error: ['Erro de sync', 'cloud-error'],
-  }[status] || ['Local', 'cloud-local'];
-  return `<button class="cloud-badge ${meta[1]}" id="accountBtn" title="${esc(state.syncMessage)}"><span class="cloud-dot"></span>${meta[0]}</button>`;
-}
-
-function cloudSetupNotice() { return ''; }
-
-function card(task, { deleteButton = false, pendingContext = false } = {}) {
-  const pm = priorityMeta[task.priority];
-  const canStart = ['planned', 'interrupted'].includes(task.status);
-  const pendingAction = task.status === 'waitingMaterial'
-    ? `<button class="primary-btn" data-unblock="material:${task.id}">Material disponível</button>`
-    : task.status === 'waitingEnvironment'
-      ? `<button class="primary-btn" data-unblock="environment:${task.id}">Ambiente liberado</button>`
-      : task.status === 'saturday'
-        ? `<button class="primary-btn" data-saturday-now="${task.id}">Executar agora</button>`
-        : '';
-
-  return `<article class="task-card ${task.status === 'inProgress' ? 'featured' : ''}">
-    <div class="task-top">
-      <div>
-        <div class="badge-row"><span class="priority-badge ${pm.tone}">${pm.label}</span><span class="status-badge">${statusMeta[task.status]}</span></div>
-        <h3>${esc(task.title)}</h3>
-        <p>${esc(task.location)} · ${esc(task.category)} · ${task.indefiniteEstimate ? 'Tempo indeterminado' : `${task.estimatedMinutes} min`}</p>
-        ${task.interruptionReason ? `<p class="reason">Motivo: ${esc(task.interruptionReason)}</p>` : ''}
-      </div>
-      <button class="kebab" data-edit="${task.id}">•••</button>
-    </div>
-    <div class="task-actions">
-      ${canStart ? `<button class="primary-btn" data-start="${task.id}">▶ ${task.status === 'interrupted' ? 'Retomar agora' : 'Iniciar'}</button>` : ''}
-      ${pendingContext ? pendingAction : ''}
-      ${task.status === 'waitingMaterial' ? `<button class="secondary-btn" data-add-request-task="${task.id}">＋ Anotar material</button>` : ''}
-      ${task.status === 'inProgress' ? `<button class="secondary-btn" data-interrupt="${task.id}">Pausar</button><button class="success-btn" data-complete="${task.id}">Concluir</button>` : ''}
-      ${!pendingContext && !['completed', 'waitingMaterial'].includes(task.status) ? `<button class="text-btn" data-block="waitingMaterial:${task.id}">Falta material</button>` : ''}
-      ${!pendingContext && !['completed', 'waitingEnvironment'].includes(task.status) ? `<button class="text-btn" data-block="waitingEnvironment:${task.id}">Ambiente ocupado</button>` : ''}
-      ${!pendingContext && !['completed', 'saturday'].includes(task.status) ? `<button class="text-btn" data-block="saturday:${task.id}">Sábado</button>` : ''}
-      ${task.status !== 'completed' && task.status !== 'inProgress' ? `<button class="text-btn success-text" data-complete="${task.id}">Concluir</button>` : ''}
-      ${deleteButton ? `<button class="text-btn danger-text" data-delete="${task.id}">Excluir</button>` : ''}
-    </div>
-  </article>`;
-}
-
-function todayView() {
-  const a = active();
-  const ex = executable();
-  const next = ex[0];
-  const interrupted = a.filter((t) => t.status === 'interrupted');
-  const blocked = a.filter((t) => ['waitingMaterial', 'waitingEnvironment', 'saturday'].includes(t.status));
-  const pendingCount = interrupted.length + blocked.length;
-  const emergencyDecision = emergencyAwaitingDecision() || deferredEmergency();
-  return `${cloudSetupNotice()}
-    <section class="hero"><p class="muted">Controle primeiro o que realmente pode e deve ser feito.</p><div class="stats-grid">${stat(a.filter((t) => t.priority === 'emergency').length, 'Emergências', 'danger')}${stat(a.filter((t) => t.priority === 'high').length, 'Alta prioridade', 'warning')}${stat(interrupted.length, 'Interrompidas', 'violet')}${stat(a.filter((t) => t.status === 'waitingMaterial').length, 'Sem material')}</div></section>
-    ${emergencyDecision ? emergencyDecisionNotice(emergencyDecision) : ''}
-    <section class="section"><div class="section-head"><div><span class="eyebrow">PRÓXIMA MISSÃO</span><h2>O que fazer agora</h2></div></div>${next ? card(next) : empty('Nenhuma tarefa executável', 'Cadastre uma tarefa ou revise as atividades bloqueadas.')}</section>
-    ${interrupted.length ? `<section class="section"><div class="section-head"><h2>Retomar</h2><span class="count-pill">${interrupted.length}</span></div>${interrupted.slice(0, 3).map((t) => card(t)).join('')}</section>` : ''}
-    ${pendingCount ? `<section class="section pending-shortcut"><div><span class="eyebrow">PENDÊNCIAS</span><h2>${pendingCount} ${pendingCount === 1 ? 'item precisa' : 'itens precisam'} da sua atenção</h2><p>Materiais, ambientes, interrupções e serviços de sábado ficam organizados em um único lugar.</p></div><button class="secondary-btn" id="openPendencies">Abrir Central</button></section>` : ''}`;
-}
-
-function tasksView() {
-  const sorted = [...state.tasks].sort((a, b) => priorityMeta[b.priority].weight - priorityMeta[a.priority].weight || new Date(a.createdAt) - new Date(b.createdAt));
-  return `<section class="section flush"><div class="filter-row"><button class="chip selected">Todas</button><button class="chip">Ativas: ${active().length}</button><button class="chip">Concluídas: ${state.tasks.filter((t) => t.status === 'completed').length}</button></div>${sorted.length ? sorted.map((t) => card(t, { deleteButton: true })).join('') : empty('Sem tarefas', 'Crie sua primeira tarefa usando o botão +.')}</section>`;
-}
-
-function pendingGroup(title, description, tasks, emptyText) {
-  return `<section class="pending-group">
-    <div class="section-head pending-head"><div><h2>${title}</h2><p>${description}</p></div><span class="count-pill">${tasks.length}</span></div>
-    ${tasks.length ? tasks.map((t) => card(t, { pendingContext: true })).join('') : `<div class="pending-empty">${emptyText}</div>`}
-  </section>`;
-}
-
-function pendenciesView() {
-  const interrupted = state.tasks.filter((t) => t.status === 'interrupted');
-  const waitingMaterial = state.tasks.filter((t) => t.status === 'waitingMaterial');
-  const waitingEnvironment = state.tasks.filter((t) => t.status === 'waitingEnvironment');
-  const saturday = state.tasks.filter((t) => t.status === 'saturday');
-  const total = interrupted.length + waitingMaterial.length + waitingEnvironment.length + saturday.length;
-
-  return `<section class="section flush">
-    <div class="pending-overview">
-      <div><span class="eyebrow">CENTRAL DE PENDÊNCIAS</span><h2>${total ? `${total} ${total === 1 ? 'pendência' : 'pendências'}` : 'Tudo liberado'}</h2><p>Desbloqueie uma tarefa quando a condição real mudar. Nada volta para a Jornada sem sua confirmação.</p></div>
-      <div class="pending-mini-stats">
-        ${stat(interrupted.length, 'Interrompidas', 'violet')}
-        ${stat(waitingMaterial.length, 'Material', 'warning')}
-        ${stat(waitingEnvironment.length, 'Ambiente', 'info')}
-        ${stat(saturday.length, 'Sábado')}
-      </div>
-    </div>
-    ${pendingGroup('Interrompidas', 'Serviços que foram parados e precisam ser retomados conscientemente.', interrupted, 'Nenhum serviço interrompido.')}
-    ${pendingGroup('Aguardando material', 'Confirme quando o material estiver realmente disponível.', waitingMaterial, 'Nenhuma tarefa aguardando material.')}
-    ${pendingGroup('Aguardando ambiente', 'Libere somente quando o local estiver disponível para execução.', waitingEnvironment, 'Nenhuma tarefa aguardando ambiente.')}
-    ${pendingGroup('Sábado', 'Serviços reservados para ambiente desocupado, ruído ou bloqueio de área.', saturday, 'Nenhuma tarefa programada para sábado.')}
-  </section>`;
-}
-
-function materialState(material) {
-  return material.quantity <= 0 ? 'out' : material.quantity <= material.minimum ? 'low' : 'ok';
-}
-
-function purchaseItemStatusLabel(status) {
-  return status === 'requested' ? 'Solicitado' : 'Para solicitar';
-}
-
-function purchaseItemsView() {
-  const pending = state.purchaseItems.filter((item) => item.status !== 'requested').sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-  const requested = state.purchaseItems.filter((item) => item.status === 'requested').sort((a, b) => new Date(b.requestedAt || b.updatedAt || b.createdAt) - new Date(a.requestedAt || a.updatedAt || a.createdAt));
-  return `<div class="purchase-panel">
-    <div class="purchase-toolbar"><div><span class="eyebrow">PEDIDO DE COMPRAS</span><h2>Materiais para solicitação</h2><p>Anote durante o dia. Quando chegar o momento do pedido, gere a planilha oficial já preenchida.</p></div><div class="purchase-toolbar-actions"><button class="secondary-btn" id="newPurchaseItem">＋ Anotar material</button><button class="primary-btn" id="generatePurchaseExcel" ${pending.length ? '' : 'disabled'}>Gerar Excel</button></div></div>
-    <div class="material-summary">${stat(pending.length, 'Para solicitar', pending.length ? 'warning' : 'success')}${stat(requested.length, 'Solicitados', 'info')}${stat(Math.max(0, 29 - pending.length), 'Linhas livres')}</div>
-    <section class="purchase-section"><div class="section-head"><div><h3>Para solicitar</h3><p>Itens ainda não enviados ao setor de compras.</p></div><span class="count-pill">${pending.length}</span></div>${pending.length ? pending.map((item) => purchaseItemCard(item)).join('') : `<div class="pending-empty">Nenhum material aguardando solicitação.</div>`}</section>
-    <section class="purchase-section requested-section"><div class="section-head"><div><h3>Solicitados</h3><p>Histórico dos itens que já entraram em um pedido.</p></div><span class="count-pill">${requested.length}</span></div>${requested.length ? requested.slice(0, 40).map((item) => purchaseItemCard(item, { requested: true })).join('') : `<div class="pending-empty">Nenhum item solicitado ainda.</div>`}</section>
-  </div>`;
-}
-
-function purchaseItemCard(item, { requested = false } = {}) {
-  const linkedTask = item.taskId ? state.tasks.find((task) => task.id === item.taskId) : null;
-  return `<article class="purchase-card"><div class="purchase-card-main"><div class="badge-row"><span class="status-badge">${purchaseItemStatusLabel(item.status)}</span>${item.requestNumber ? `<span class="request-number">Solicitação ${esc(item.requestNumber)}</span>` : ''}</div><strong>${esc(item.productService)}</strong><span>${item.quantity} · ${esc(item.specification || 'Sem especificação')}</span>${linkedTask ? `<small>Relacionado a: ${esc(linkedTask.title)} · ${esc(linkedTask.location)}</small>` : ''}${item.requestedAt ? `<small>Solicitado em ${new Date(item.requestedAt).toLocaleDateString('pt-BR')}</small>` : ''}</div><div class="material-actions">${requested ? `<button class="text-btn" data-reopen-purchase="${item.id}">Voltar para pendentes</button>` : `<button class="text-btn" data-edit-purchase="${item.id}">Editar</button><button class="text-btn danger-text" data-delete-purchase="${item.id}">Excluir</button>`}</div></article>`;
-}
-
-function stockMaterialsView() {
-  const materials = [...state.materials].sort((a, b) => ({ out: 0, low: 1, ok: 2 })[materialState(a)] - ({ out: 0, low: 1, ok: 2 })[materialState(b)]);
-  return `<div class="stock-panel"><div class="section-head"><div><span class="eyebrow">ESTOQUE OPERACIONAL</span><h2>Essenciais</h2></div><button class="secondary-btn" id="newMaterial">＋ Material</button></div><div class="material-summary">${stat(materials.filter((m) => materialState(m) === 'out').length, 'Acabou', 'danger')}${stat(materials.filter((m) => materialState(m) === 'low').length, 'Baixo', 'warning')}${stat(materials.filter((m) => materialState(m) === 'ok').length, 'OK', 'success')}</div>${materials.length ? materials.map((m) => `<div class="material-card"><div><strong>${esc(m.name)}</strong><span>${m.quantity} ${esc(m.unit)} · mínimo ${m.minimum}</span></div><div class="material-actions"><span class="stock-badge ${materialState(m)}">${materialState(m) === 'out' ? 'Acabou' : materialState(m) === 'low' ? 'Baixo' : 'OK'}</span><button class="text-btn" data-edit-material="${m.id}">Editar</button></div></div>`).join('') : empty('Sem materiais cadastrados', 'Cadastre somente os itens essenciais que você precisa acompanhar.')}</div>`;
-}
-
-function materialsView() {
-  return `<section class="section flush"><div class="materials-switch"><button class="chip ${state.materialsSection === 'stock' ? 'selected' : ''}" data-material-section="stock">Estoque essencial</button><button class="chip ${state.materialsSection === 'requests' ? 'selected' : ''}" data-material-section="requests">Para solicitar <span class="mini-count">${state.purchaseItems.filter((item) => item.status !== 'requested').length}</span></button></div>${state.materialsSection === 'requests' ? purchaseItemsView() : stockMaterialsView()}</section>`;
-}
-
-function historyView() {
-  const events = state.tasks
-    .flatMap((t) => (t.history || []).map((h) => ({ ...h, task: t.title, location: t.location })))
-    .sort((a, b) => new Date(b.at) - new Date(a.at));
-  return `<section class="section flush"><div class="backup-box"><div><strong>Backup adicional</strong><span>${state.user ? 'Seus dados também estão sincronizados com o Firebase. O arquivo JSON continua útil como cópia independente.' : 'Sem login na nuvem, este arquivo é sua principal proteção contra perda de dados.'}</span></div><div class="backup-actions"><button class="secondary-btn" id="exportBtn">Exportar</button><button class="secondary-btn" id="importBtn">Importar</button></div></div><div class="section-head"><h2>Atividade recente</h2></div>${events.length ? events.slice(0, 60).map((e) => `<div class="history-row"><div class="timeline-dot"></div><div><strong>${esc(e.action)}</strong><span>${esc(e.task)} · ${esc(e.location)}</span><small>${new Date(e.at).toLocaleString('pt-BR')}</small></div></div>`).join('') : empty('Sem histórico', 'As movimentações das tarefas aparecerão aqui.')}</section>`;
-}
-
-
-function accessGateView() {
-  const title = 'Acesso restrito';
-  const text = 'Entre com a única conta autorizada para acessar suas tarefas e materiais. Depois do primeiro login, o app continua disponível offline neste dispositivo.';
-  const buttonId = 'accountBtn';
-  const buttonText = 'Entrar';
-  return `<div class="auth-gate"><div class="auth-gate-card"><div class="auth-mark">M</div><span class="eyebrow">MGP DAILY <span class="version">v${APP_VERSION}</span></span><h1>${title}</h1><p>${text}</p><button class="primary-btn auth-gate-btn" id="${buttonId}">${buttonText}</button><small>Uso pessoal · acesso por UID do Firebase</small></div></div>`;
-}
-
-function render() {
-  if (!state.accessGranted) {
-    document.querySelector('#app').innerHTML = accessGateView();
-    bind();
-    return;
-  }
-  const titles = { today: 'Minha Jornada', tasks: 'Tarefas', pendencies: 'Pendências', materials: 'Materiais', history: 'Histórico' };
-  document.querySelector('#app').innerHTML = `<div class="app-shell">
-    <header class="topbar">
-      <div><div class="eyebrow">MGP Daily <span class="version">v${APP_VERSION}</span></div><h1>${titles[state.tab]}</h1></div>
-      <div class="topbar-actions">${syncBadge()}<button class="icon-btn" id="newTask">＋</button></div>
-    </header>
-    <main class="content">${state.tab === 'today' ? todayView() : state.tab === 'tasks' ? tasksView() : state.tab === 'pendencies' ? pendenciesView() : state.tab === 'materials' ? materialsView() : historyView()}</main>
-    <nav class="bottom-nav">${[['today', '⌂', 'Hoje'], ['tasks', '☷', 'Tarefas'], ['pendencies', '!', 'Pendências'], ['materials', '▣', 'Materiais'], ['history', '↺', 'Histórico']].map(([value, icon, label]) => `<button class="nav-btn ${state.tab === value ? 'active' : ''}" data-tab="${value}"><span class="nav-icon">${icon}</span><span>${label}</span></button>`).join('')}</nav>
-  </div>`;
-  bind();
-}
-
-function bind() {
-  document.querySelectorAll('[data-tab]').forEach((button) => (button.onclick = () => { state.tab = button.dataset.tab; render(); }));
-  document.querySelector('#newTask')?.addEventListener('click', () => taskModal());
-  document.querySelector('#accountBtn')?.addEventListener('click', accountModal);
-  document.querySelectorAll('[data-edit]').forEach((button) => (button.onclick = () => taskModal(state.tasks.find((t) => t.id === button.dataset.edit))));
-  document.querySelectorAll('[data-start]').forEach((button) => (button.onclick = () => startTask(button.dataset.start)));
-  document.querySelectorAll('[data-emergency-assume]').forEach((button) => (button.onclick = () => assumeEmergency(button.dataset.emergencyAssume)));
-  document.querySelectorAll('[data-emergency-keep]').forEach((button) => (button.onclick = () => keepCurrentTask(button.dataset.emergencyKeep)));
-  document.querySelectorAll('[data-interrupt]').forEach((button) => (button.onclick = () => interruptTask(button.dataset.interrupt)));
-  document.querySelectorAll('[data-complete]').forEach((button) => (button.onclick = () => transition(button.dataset.complete, 'completed', 'Tarefa concluída', { completedAt: now(), interruptionReason: '' })));
-  document.querySelectorAll('[data-block]').forEach((button) => (button.onclick = () => {
-    const [status, id] = button.dataset.block.split(':');
-    transition(id, status, status === 'waitingMaterial' ? 'Aguardando material' : status === 'waitingEnvironment' ? 'Aguardando ambiente' : 'Programada para sábado');
-  }));
-  document.querySelector('#openPendencies')?.addEventListener('click', () => { state.tab = 'pendencies'; render(); });
-  document.querySelectorAll('[data-unblock]').forEach((button) => (button.onclick = async () => {
-    const [kind, id] = button.dataset.unblock.split(':');
-    if (kind === 'material') {
-      await releasePendingTask(id, 'Material disponível; tarefa liberada para a Jornada', 'Material confirmado. Tarefa devolvida à Jornada.');
-    } else if (kind === 'environment') {
-      await releasePendingTask(id, 'Ambiente liberado; tarefa devolvida para a Jornada', 'Ambiente liberado. Tarefa devolvida à Jornada.');
-    }
-  }));
-  document.querySelectorAll('[data-saturday-now]').forEach((button) => (button.onclick = async () => {
-    const id = button.dataset.saturdayNow;
-    const task = state.tasks.find((t) => t.id === id);
-    if (!task) return;
-    await put('tasks', { ...task, status: 'planned', updatedAt: now(), history: [...(task.history || []), { at: now(), action: 'Janela de sábado liberada para execução' }] });
-    await refresh();
-    await startTask(id);
-  }));
-  document.querySelectorAll('[data-delete]').forEach((button) => (button.onclick = async () => {
-    const task = state.tasks.find((t) => t.id === button.dataset.delete);
-    if (confirm(`Excluir "${task.title}"?`)) {
-      await del('tasks', task.id);
-      await refresh();
-    }
-  }));
-  document.querySelectorAll('[data-material-section]').forEach((button) => (button.onclick = () => { state.materialsSection = button.dataset.materialSection; render(); }));
-  document.querySelector('#newMaterial')?.addEventListener('click', () => materialModal());
-  document.querySelectorAll('[data-edit-material]').forEach((button) => (button.onclick = () => materialModal(state.materials.find((m) => m.id === button.dataset.editMaterial))));
-  document.querySelector('#newPurchaseItem')?.addEventListener('click', () => purchaseItemModal());
-  document.querySelector('#generatePurchaseExcel')?.addEventListener('click', purchaseExportModal);
-  document.querySelectorAll('[data-edit-purchase]').forEach((button) => (button.onclick = () => purchaseItemModal(state.purchaseItems.find((item) => item.id === button.dataset.editPurchase))));
-  document.querySelectorAll('[data-delete-purchase]').forEach((button) => (button.onclick = async () => { const item = state.purchaseItems.find((entry) => entry.id === button.dataset.deletePurchase); if (item && confirm(`Excluir "${item.productService}" da lista de solicitação?`)) { await del('purchaseItems', item.id); await refresh(); } }));
-  document.querySelectorAll('[data-reopen-purchase]').forEach((button) => (button.onclick = async () => { const item = state.purchaseItems.find((entry) => entry.id === button.dataset.reopenPurchase); if (!item) return; await put('purchaseItems', { ...item, status: 'pending', requestNumber: '', requestedAt: '', requestDate: '', usageDate: '', updatedAt: now() }); await refresh(); toast('Item devolvido para Para solicitar.'); }));
-  document.querySelectorAll('[data-add-request-task]').forEach((button) => (button.onclick = () => { const task = state.tasks.find((entry) => entry.id === button.dataset.addRequestTask); purchaseItemModal(null, task); }));
-  document.querySelector('#exportBtn')?.addEventListener('click', exportBackup);
-  document.querySelector('#importBtn')?.addEventListener('click', importBackup);
-}
-
-async function releasePendingTask(id, action, message) {
-  const task = state.tasks.find((t) => t.id === id);
-  if (!task) return;
-  const running = state.tasks.find((t) => t.status === 'inProgress' && t.id !== id);
-  const timestamp = now();
-  const emergencyDecision = task.priority === 'emergency' && running ? 'pending' : (task.emergencyDecision || '');
-  const history = [...(task.history || []), { at: timestamp, action }];
-
-  if (task.priority === 'emergency' && running) {
-    history.push({ at: timestamp, action: `Emergência liberada e aguardando decisão enquanto "${running.title}" está em execução` });
-  }
-
-  await put('tasks', {
-    ...task,
-    status: 'planned',
-    interruptionReason: '',
-    emergencyDecision,
-    updatedAt: timestamp,
-    history,
-  });
-  await refresh();
-  toast(message);
-  if (emergencyDecision === 'pending') emergencyDecisionModal(id);
-}
-
-async function transition(id, status, action, extra = {}) {
-  const task = state.tasks.find((t) => t.id === id);
-  if (!task) return;
-  await put('tasks', { ...task, ...extra, status, updatedAt: now(), history: [...(task.history || []), { at: now(), action }] });
-  await refresh();
-}
-
-async function startTask(id) {
-  const task = state.tasks.find((t) => t.id === id);
-  if (!task) return;
-  const running = state.tasks.find((t) => t.status === 'inProgress' && t.id !== id);
-
-  if (running && task.priority === 'emergency') {
-    await put('tasks', {
-      ...task,
-      emergencyDecision: 'pending',
-      updatedAt: now(),
-      history: [...(task.history || []), { at: now(), action: `Emergência aguardando decisão enquanto "${running.title}" está em execução` }],
-    });
-    await refresh();
-    emergencyDecisionModal(task.id);
-    return;
-  }
-
-  if (running) {
-    await put('tasks', { ...running, status: 'interrupted', interruptionReason: 'Troca de prioridade', updatedAt: now(), history: [...(running.history || []), { at: now(), action: `Interrompida automaticamente para iniciar: ${task.title}` }] });
-  }
-  await transition(id, 'inProgress', 'Execução iniciada', { startedAt: task.startedAt || now(), interruptionReason: '', emergencyDecision: task.priority === 'emergency' ? 'assumed' : (task.emergencyDecision || '') });
-}
-
-async function assumeEmergency(id) {
-  const emergency = state.tasks.find((t) => t.id === id);
-  if (!emergency) return;
-  const running = state.tasks.find((t) => t.status === 'inProgress' && t.id !== id);
-  const timestamp = now();
-
-  if (running) {
-    await put('tasks', {
-      ...running,
-      status: 'interrupted',
-      interruptionReason: `Atendimento de emergência: ${emergency.title}`,
-      updatedAt: timestamp,
-      history: [...(running.history || []), { at: timestamp, action: `Interrompida para atender emergência: ${emergency.title}` }],
-    });
-  }
-
-  await put('tasks', {
-    ...emergency,
-    status: 'inProgress',
-    startedAt: emergency.startedAt || timestamp,
-    interruptionReason: '',
-    emergencyDecision: 'assumed',
-    updatedAt: timestamp,
-    history: [...(emergency.history || []), { at: timestamp, action: running ? `Emergência assumida; interrompeu: ${running.title}` : 'Emergência assumida' }],
-  });
-
-  await refresh();
-  toast('Emergência assumida. A tarefa anterior ficou preservada para retomada.');
-}
-
-async function keepCurrentTask(id) {
-  const emergency = state.tasks.find((t) => t.id === id);
-  if (!emergency) return;
-  const running = state.tasks.find((t) => t.status === 'inProgress' && t.id !== id);
-  const timestamp = now();
-  await put('tasks', {
-    ...emergency,
-    emergencyDecision: 'deferred',
-    updatedAt: timestamp,
-    history: [...(emergency.history || []), { at: timestamp, action: running ? `Emergência mantida em espera; tarefa atual preservada: ${running.title}` : 'Emergência mantida em espera' }],
-  });
-  await refresh();
-  toast('Tarefa atual mantida. A emergência continua destacada para atendimento.');
-}
-
-function emergencyDecisionModal(id) {
-  const emergency = state.tasks.find((t) => t.id === id);
-  const running = state.tasks.find((t) => t.status === 'inProgress' && t.id !== id);
-  if (!emergency || !running) return;
-
-  const el = modalShell(`<div class="modal small emergency-modal"><div class="modal-head"><div><span class="eyebrow">NOVA EMERGÊNCIA</span><h2>Decisão operacional</h2></div></div><div class="emergency-summary"><strong>${esc(emergency.title)}</strong><span>${esc(emergency.location)} · Emergência</span></div><div class="current-task-summary"><span>Você está executando</span><strong>${esc(running.title)}</strong><small>${esc(running.location)}</small></div><p class="decision-copy">Assumir a emergência interrompe a tarefa atual e registra automaticamente o motivo. Manter a tarefa atual deixa a emergência destacada para atendimento posterior.</p><div class="modal-actions stacked"><button type="button" class="danger-btn" id="assumeEmergencyBtn">Assumir emergência</button><button type="button" class="secondary-btn" id="keepCurrentBtn">Manter tarefa atual</button></div></div>`);
-  el.querySelector('#assumeEmergencyBtn').onclick = async () => { el.remove(); await assumeEmergency(id); };
-  el.querySelector('#keepCurrentBtn').onclick = async () => { el.remove(); await keepCurrentTask(id); };
-}
-
-async function interruptTask(id) {
-  const reason = prompt(`Motivo da interrupção:\n${interruptionReasons.join('\n')}`, 'Solicitação da gestão');
-  if (reason) await transition(id, 'interrupted', `Interrompida: ${reason}`, { interruptionReason: reason });
-}
-
-function modalShell(inner) {
-  const el = document.createElement('div');
-  el.className = 'modal-backdrop';
-  el.innerHTML = inner;
-  el.addEventListener('mousedown', (event) => { if (event.target === el) el.remove(); });
-  document.body.appendChild(el);
-  return el;
-}
-
-function taskModal(task) {
-  const el = modalShell(`<form class="modal"><div class="modal-head"><div><span class="eyebrow">${task ? 'EDITAR' : 'NOVA'}</span><h2>${task ? 'Tarefa' : 'Nova tarefa'}</h2></div><button type="button" class="icon-btn subtle close">×</button></div><label>Título<input name="title" required value="${esc(task?.title || '')}" placeholder="Ex.: Trocar luminária"></label><label>Local<input name="location" required value="${esc(task?.location || '')}" placeholder="Ex.: Biblioteca"></label><div class="form-grid"><label>Categoria<select name="category">${categories.map((c) => `<option ${task?.category === c ? 'selected' : ''}>${c}</option>`).join('')}</select></label><label>Prioridade<select name="priority">${Object.entries(priorityMeta).map(([value, meta]) => `<option value="${value}" ${(task?.priority || 'medium') === value ? 'selected' : ''}>${meta.label}</option>`).join('')}</select></label></div><label>Tempo estimado (min)<input name="estimatedMinutes" type="number" min="1" value="${task?.indefiniteEstimate ? '' : (task?.estimatedMinutes || 20)}" ${task?.indefiniteEstimate ? 'disabled' : ''}></label><label class="check-row"><input name="indefiniteEstimate" type="checkbox" ${task?.indefiniteEstimate ? 'checked' : ''}><span>Tempo indeterminado</span></label><label>Observação<textarea name="notes" rows="3" placeholder="Detalhes úteis para retomar depois...">${esc(task?.notes || '')}</textarea></label><div class="modal-actions"><button type="button" class="secondary-btn close">Cancelar</button><button class="primary-btn">Salvar tarefa</button></div></form>`);
-  el.querySelectorAll('.close').forEach((button) => (button.onclick = () => el.remove()));
-  const estimateInput = el.querySelector('[name="estimatedMinutes"]');
-  const indefiniteInput = el.querySelector('[name="indefiniteEstimate"]');
-  const syncEstimateState = () => {
-    estimateInput.disabled = indefiniteInput.checked;
-    if (indefiniteInput.checked) estimateInput.value = '';
-    else if (!estimateInput.value) estimateInput.value = '20';
-  };
-  indefiniteInput.addEventListener('change', syncEstimateState);
-  syncEstimateState();
-  el.querySelector('form').onsubmit = async (event) => {
-    event.preventDefault();
-    const form = new FormData(event.target);
-    const existing = task || {};
-    const value = {
-      id: task?.id || uid(),
-      title: form.get('title').trim(),
-      location: form.get('location').trim(),
-      category: form.get('category'),
-      priority: form.get('priority'),
-      indefiniteEstimate: form.get('indefiniteEstimate') === 'on',
-      estimatedMinutes: form.get('indefiniteEstimate') === 'on' ? null : (Number(form.get('estimatedMinutes')) || 15),
-      notes: form.get('notes').trim(),
-      status: existing.status || 'planned',
-      createdAt: existing.createdAt || now(),
-      updatedAt: now(),
-      history: existing.history || [{ at: now(), action: 'Tarefa criada' }],
-      interruptionReason: existing.interruptionReason || '',
-      emergencyDecision: existing.emergencyDecision || '',
-    };
-
-    const running = state.tasks.find((t) => t.status === 'inProgress' && t.id !== value.id);
-    const becameEmergency = value.priority === 'emergency' && existing.priority !== 'emergency';
-    if (running && value.status === 'planned' && value.priority === 'emergency' && (!task || becameEmergency)) {
-      value.emergencyDecision = 'pending';
-      value.history = [...value.history, { at: now(), action: `Emergência aguardando decisão enquanto "${running.title}" está em execução` }];
-    }
-
-    await put('tasks', value);
-    el.remove();
-    await refresh();
-    toast(task ? 'Tarefa atualizada.' : 'Tarefa criada.');
-
-    if (value.emergencyDecision === 'pending') emergencyDecisionModal(value.id);
-  };
-}
-
-function materialModal(material) {
-  const el = modalShell(`<form class="modal small"><div class="modal-head"><div><span class="eyebrow">ESTOQUE</span><h2>${material ? 'Editar material' : 'Novo material'}</h2></div><button type="button" class="icon-btn subtle close">×</button></div><label>Material<input name="name" required value="${esc(material?.name || '')}" placeholder="Ex.: Lâmpada LED 18W"></label><div class="form-grid"><label>Quantidade<input name="quantity" type="number" min="0" value="${material?.quantity || 0}"></label><label>Mínimo<input name="minimum" type="number" min="0" value="${material?.minimum || 0}"></label></div><label>Unidade<select name="unit">${['un', 'm', 'kg', 'L', 'cx', 'pct'].map((u) => `<option ${material?.unit === u ? 'selected' : ''}>${u}</option>`).join('')}</select></label><div class="modal-actions"><button type="button" class="secondary-btn close">Cancelar</button><button class="primary-btn">Salvar</button></div></form>`);
-  el.querySelectorAll('.close').forEach((button) => (button.onclick = () => el.remove()));
-  el.querySelector('form').onsubmit = async (event) => {
-    event.preventDefault();
-    const form = new FormData(event.target);
-    await put('materials', {
-      id: material?.id || uid(),
-      name: form.get('name').trim(),
-      quantity: Number(form.get('quantity')) || 0,
-      minimum: Number(form.get('minimum')) || 0,
-      unit: form.get('unit'),
-      createdAt: material?.createdAt || now(),
-      updatedAt: now(),
-    });
-    el.remove();
-    await refresh();
-    toast(material ? 'Material atualizado.' : 'Material adicionado.');
-  };
-}
-
-function purchaseItemModal(item = null, task = null) {
-  const linkedTask = task || (item?.taskId ? state.tasks.find((entry) => entry.id === item.taskId) : null);
-  const el = modalShell(`<form class="modal"><div class="modal-head"><div><span class="eyebrow">SOLICITAÇÃO DE MATERIAL</span><h2>${item ? 'Editar item' : 'Anotar material'}</h2></div><button type="button" class="icon-btn subtle close">×</button></div>${linkedTask ? `<div class="linked-task-box"><span>Relacionado à tarefa</span><strong>${esc(linkedTask.title)}</strong><small>${esc(linkedTask.location)}</small></div>` : ''}<label>Produto/Serviço<input name="productService" required value="${esc(item?.productService || '')}" placeholder="Ex.: Painel LED de Embutir 18W"></label><label>Quantidade<input name="quantity" type="number" min="0.01" step="0.01" required value="${item?.quantity ?? 1}" placeholder="Ex.: 5"></label><label>Especificação<textarea name="specification" rows="3" required placeholder="Ex.: Quadrado, bivolt, luz branco neutro">${esc(item?.specification || '')}</textarea></label><div class="modal-actions"><button type="button" class="secondary-btn close">Cancelar</button><button class="primary-btn">Salvar na lista</button></div></form>`);
-  el.querySelectorAll('.close').forEach((button) => (button.onclick = () => el.remove()));
-  el.querySelector('form').onsubmit = async (event) => { event.preventDefault(); const form = new FormData(event.target); await put('purchaseItems', { id: item?.id || uid(), productService: form.get('productService').trim(), quantity: Number(form.get('quantity')) || 1, specification: form.get('specification').trim(), status: item?.status || 'pending', taskId: linkedTask?.id || item?.taskId || '', createdAt: item?.createdAt || now(), updatedAt: now(), requestNumber: item?.requestNumber || '', requestedAt: item?.requestedAt || '', requestDate: item?.requestDate || '', usageDate: item?.usageDate || '' }); el.remove(); state.materialsSection = 'requests'; await refresh(); toast(item ? 'Item atualizado.' : 'Material anotado para a próxima solicitação.'); };
-}
-
-function localDateInputValue(date = new Date()) { const pad = (value) => String(value).padStart(2, '0'); return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`; }
-
-function purchaseExportModal() {
-  const pending = state.purchaseItems.filter((item) => item.status !== 'requested').sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-  if (!pending.length) { toast('Não há materiais pendentes para exportar.'); return; }
-  const el = modalShell(`<form class="modal purchase-export-modal"><div class="modal-head"><div><span class="eyebrow">GERAR PEDIDO DE COMPRA</span><h2>Exportar planilha oficial</h2></div><button type="button" class="icon-btn subtle close">×</button></div><div class="form-grid"><label>Data<input name="requestDate" type="date" required value="${localDateInputValue()}"></label><label>Nº da solicitação<input name="requestNumber" required inputmode="numeric" placeholder="Ex.: 104"></label></div><label>Data da utilização<input name="usageDate" type="date" required value="${localDateInputValue()}"></label><div class="excel-template-note"><strong>Modelo oficial</strong><span>Preenche DATA, Nº DA SOLICITAÇÃO, PRODUTO/SERVIÇO, QUANTIDADE, ESPECIFICAÇÃO e DATA DA UTILIZAÇÃO.</span></div><div class="export-selection-head"><strong>Materiais do pedido</strong><span>Máximo de 29 itens por planilha</span></div><div class="export-items">${pending.map((item, index) => `<label class="export-item"><input type="checkbox" name="purchaseItem" value="${item.id}" ${index < 29 ? 'checked' : ''}><span><strong>${esc(item.productService)}</strong><small>${item.quantity} · ${esc(item.specification)}</small></span></label>`).join('')}</div>${pending.length > 29 ? `<div class="limit-warning">Existem ${pending.length} itens pendentes. Apenas 29 podem ser enviados em cada planilha.</div>` : ''}<div class="modal-actions"><button type="button" class="secondary-btn close">Cancelar</button><button class="primary-btn" type="submit">Gerar Excel</button></div></form>`);
-  el.querySelectorAll('.close').forEach((button) => (button.onclick = () => el.remove()));
-  const formEl = el.querySelector('form');
-  formEl.addEventListener('change', () => { const checked = [...formEl.querySelectorAll('input[name="purchaseItem"]:checked')]; if (checked.length > 29) { checked[checked.length - 1].checked = false; toast('A planilha aceita no máximo 29 itens.'); } });
-  formEl.onsubmit = async (event) => { event.preventDefault(); const form = new FormData(formEl); const selectedIds = form.getAll('purchaseItem'); if (!selectedIds.length) { alert('Selecione pelo menos um material.'); return; } if (selectedIds.length > 29) { alert('Selecione no máximo 29 materiais por solicitação.'); return; } const selected = selectedIds.map((id) => state.purchaseItems.find((item) => item.id === id)).filter(Boolean); const requestDate = form.get('requestDate'); const requestNumber = form.get('requestNumber').trim(); const usageDate = form.get('usageDate'); try { await generatePurchaseWorkbook({ items: selected, requestDate, requestNumber, usageDate }); const shouldMark = confirm('Excel gerado. Deseja marcar os itens exportados como Solicitados?'); if (shouldMark) { const timestamp = now(); for (const item of selected) await put('purchaseItems', { ...item, status: 'requested', requestNumber, requestDate, usageDate, requestedAt: timestamp, updatedAt: timestamp }); await refresh(); } el.remove(); toast('Planilha de pedido gerada.'); } catch (error) { console.error(error); alert(`Não foi possível gerar o Excel: ${error.message || error}`); } };
-}
-
-function excelSerialFromDate(value) { const [year, month, day] = String(value).split('-').map(Number); return Math.round((Date.UTC(year, month - 1, day) - Date.UTC(1899, 11, 30)) / 86400000); }
-function xmlEscape(value) { return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;'); }
-function setWorksheetCell(xml, address, value, type = 'text') {
-  const escapedAddress = address.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const pattern = new RegExp(`<c([^>]*\\br="${escapedAddress}"[^>]*)\\/>|<c([^>]*\\br="${escapedAddress}"[^>]*)>([\\s\\S]*?)<\\/c>`, 'i');
-  const match = xml.match(pattern);
-  if (!match) throw new Error(`Célula ${address} não encontrada no modelo.`);
-  const attrs = (match[1] || match[2]).replace(/\s+t="[^"]*"/g, '');
-  const replacement = value === '' || value === null || value === undefined
-    ? `<c${attrs}/>`
-    : type === 'number'
-      ? `<c${attrs}><v>${Number(value)}</v></c>`
-      : `<c${attrs} t="inlineStr"><is><t xml:space="preserve">${xmlEscape(value)}</t></is></c>`;
-  return xml.replace(pattern, replacement);
-}
-async function generatePurchaseWorkbook({ items, requestDate, requestNumber, usageDate }) {
-  if (typeof JSZip === 'undefined') throw new Error('Componente de Excel não carregado. Abra o app conectado à internet uma vez e tente novamente.');
-  const templateResponse = await fetch('./assets/pedido-compras-template.xlsx'); if (!templateResponse.ok) throw new Error('Modelo de pedido de compras não encontrado.');
-  const zip = await JSZip.loadAsync(await templateResponse.arrayBuffer()); const sheetFile = zip.file('xl/worksheets/sheet1.xml'); if (!sheetFile) throw new Error('Planilha Plan1 não encontrada no modelo.'); let xml = await sheetFile.async('string');
-  xml = setWorksheetCell(xml, 'I5', excelSerialFromDate(requestDate), 'number');
-  xml = /^\d+$/.test(requestNumber) ? setWorksheetCell(xml, 'K5', Number(requestNumber), 'number') : setWorksheetCell(xml, 'K5', requestNumber, 'text');
-  for (let row = 10; row <= 38; row += 1) { xml = setWorksheetCell(xml, `E${row}`, '', 'text'); xml = setWorksheetCell(xml, `F${row}`, '', 'number'); xml = setWorksheetCell(xml, `H${row}`, '', 'text'); xml = setWorksheetCell(xml, `K${row}`, '', 'number'); }
-  items.forEach((item, index) => { const row = 10 + index; xml = setWorksheetCell(xml, `E${row}`, item.productService, 'text'); xml = setWorksheetCell(xml, `F${row}`, item.quantity, 'number'); xml = setWorksheetCell(xml, `H${row}`, item.specification, 'text'); xml = setWorksheetCell(xml, `K${row}`, excelSerialFromDate(usageDate), 'number'); });
-  zip.file('xl/worksheets/sheet1.xml', xml); const blob = await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', compression: 'DEFLATE' });
-  const safeNumber = requestNumber.replace(/[^\w.-]+/g, '-'); const anchor = document.createElement('a'); anchor.href = URL.createObjectURL(blob); anchor.download = `PEDIDO DE COMPRAS - ${safeNumber || requestDate}.xlsx`; anchor.click(); setTimeout(() => URL.revokeObjectURL(anchor.href), 1500);
-}
-
-async function exportBackup() {
-  const data = { version: APP_VERSION, exportedAt: now(), tasks: state.tasks, materials: state.materials, purchaseItems: state.purchaseItems };
-  const anchor = document.createElement('a');
-  anchor.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
-  anchor.download = `mgp-daily-backup-${new Date().toISOString().slice(0, 10)}.json`;
-  anchor.click();
-  setTimeout(() => URL.revokeObjectURL(anchor.href), 1000);
-}
-
-function importBackup() {
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = 'application/json';
-  input.onchange = async () => {
-    try {
-      const data = JSON.parse(await input.files[0].text());
-      if (!Array.isArray(data.tasks) || !Array.isArray(data.materials)) throw new Error('Formato inválido');
-      await clearLocal('tasks');
-      await clearLocal('materials');
-      await clearLocal('purchaseItems');
-      const purchaseItems = Array.isArray(data.purchaseItems) ? data.purchaseItems : [];
-      for (const task of data.tasks) await putLocal('tasks', task);
-      for (const material of data.materials) await putLocal('materials', material);
-      for (const item of purchaseItems) await putLocal('purchaseItems', item);
-      await enqueueSync({ type: 'replaceAll', store: 'tasks', records: data.tasks });
-      await enqueueSync({ type: 'replaceAll', store: 'materials', records: data.materials });
-      await enqueueSync({ type: 'replaceAll', store: 'purchaseItems', records: purchaseItems });
-      await refresh();
-      scheduleSync();
-      toast('Backup restaurado.');
-    } catch {
-      alert('Arquivo de backup inválido.');
-    }
-  };
-  input.click();
-}
-
+const today = () => new Date().toLocaleDateString('en-CA');
+const state = {tab:'home',accounts:[],categories:[],transactions:[],cards:[],month:today().slice(0,7),view:'purchase',user:null,accessGranted:false,firebaseConfigured:true,syncStatus:'local',syncMessage:'Somente neste dispositivo'};
+const cloud = {initialized:false,initializing:false,app:null,auth:null,db:null,api:null,unsubscribers:[]};
+const money = cents => (Number(cents||0)/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const esc = value => String(value??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+const cents = value => Math.round(Number(value||0)*100);
+function openDb(){return new Promise((resolve,reject)=>{const r=indexedDB.open(DB_NAME,DB_VERSION);r.onupgradeneeded=()=>{for(const s of [...STORES,'syncQueue'])if(!r.result.objectStoreNames.contains(s))r.result.createObjectStore(s,{keyPath:'id'});};r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});}
+async function all(store){const db=await openDb();return new Promise((resolve,reject)=>{const r=db.transaction(store,'readonly').objectStore(store).getAll();r.onsuccess=()=>resolve(r.result||[]);r.onerror=()=>reject(r.error);});}
+async function putLocal(store,value){const db=await openDb();return new Promise((resolve,reject)=>{const t=db.transaction(store,'readwrite');t.objectStore(store).put(value);t.oncomplete=resolve;t.onerror=()=>reject(t.error);});}
+async function delLocal(store,id){const db=await openDb();return new Promise((resolve,reject)=>{const t=db.transaction(store,'readwrite');t.objectStore(store).delete(id);t.oncomplete=resolve;t.onerror=()=>reject(t.error);});}
+async function clearLocal(store){const db=await openDb();return new Promise((resolve,reject)=>{const t=db.transaction(store,'readwrite');t.objectStore(store).clear();t.oncomplete=resolve;t.onerror=()=>reject(t.error);});}
+async function enqueueSync(op){await putLocal('syncQueue',{id:uid(),queuedAt:now(),...op});}
+async function put(store,record,{sync=true}={}){await putLocal(store,record);if(sync&&STORES.includes(store)){await enqueueSync({type:'put',store,record});scheduleSync();}}
+async function del(store,id,{sync=true}={}){await delLocal(store,id);if(sync&&STORES.includes(store)){await enqueueSync({type:'delete',store,recordId:id});scheduleSync();}}
+async function refresh({renderNow=true}={}){for(const s of STORES)state[s]=await all(s);if(renderNow)render();}
+function toast(message){document.querySelector('.toast')?.remove();const el=document.createElement('div');el.className='toast';el.textContent=message;document.body.append(el);setTimeout(()=>el.remove(),2800);}
+function modalShell(html){const el=document.createElement('div');el.className='overlay';el.innerHTML=html;document.body.append(el);el.addEventListener('click',e=>{if(e.target===el)el.remove()});return el;}
+function syncBadge(){return `<button class="sync" id="accountBtn">● ${!navigator.onLine?'Offline':state.syncStatus==='synced'?'Sincronizado':state.syncStatus==='error'?'Erro de sync':state.syncStatus==='syncing'?'Sincronizando':'Conta'}</button>`;}
+const defaultCategories=[['Alimentação','#f59e0b'],['Moradia','#7656bd'],['Transporte','#12a594'],['Saúde','#ef6588'],['Compras','#3b82f6'],['Lazer','#8b5cf6'],['Educação','#0ea5e9'],['Assinaturas','#64748b'],['Outros','#8d99ae']];
+function accountBalance(a){return Number(a.openingCents||0)+state.transactions.filter(t=>t.accountId===a.id&&t.status==='paid'&&t.method!=='credit').reduce((s,t)=>s+(t.type==='income'?1:-1)*Number(t.amountCents||0),0);}
+function catName(id){return state.categories.find(c=>c.id===id)?.name||'Outros';}
+function catColor(id){return state.categories.find(c=>c.id===id)?.color||'#64748b';}
+function txMonth(t){return (state.view==='installments'&&t.method==='credit'?(t.dueDate||t.date):t.date||'').slice(0,7);}
+function monthTransactions(){return state.transactions.filter(t=>t.type==='expense'&&txMonth(t)===state.month);}
+function monthIncome(){return state.transactions.filter(t=>t.type==='income'&&t.status==='paid'&&(t.date||'').slice(0,7)===state.month).reduce((s,t)=>s+t.amountCents,0);}
+function monthExpense(){return monthTransactions().reduce((s,t)=>s+t.amountCents,0);}
+function cardTotals(){return state.transactions.filter(t=>t.method==='credit'&&t.type==='expense'&&t.status!=='cancelled').reduce((s,t)=>s+t.amountCents,0);}
+function categoriesSummary(){const grouped=new Map();for(const t of monthTransactions()){const id=t.categoryId||'other';grouped.set(id,(grouped.get(id)||0)+t.amountCents)}return [...grouped].sort((a,b)=>b[1]-a[1]);}
+function categoryChart(){const groups=categoriesSummary(),max=groups[0]?.[1]||1;return groups.length?`<div class="chart">${groups.map(([id,value])=>`<div class="bar-col"><span>${Math.round(value/Math.max(monthExpense(),1)*100)}%</span><div class="bar" style="height:${Math.max(7,value/max*145)}px;background:${catColor(id)}"></div><small>${esc(catName(id)).slice(0,9)}</small></div>`).join('')}</div><div class="cat-list">${groups.map(([id,value])=>`<button class="cat-line" data-category-filter="${esc(id)}"><span class="dot" style="background:${catColor(id)}"></span><span>${esc(catName(id))}</span><strong>${money(value)}</strong><small>›</small></button>`).join('')}</div>`:'<div class="empty">Ainda não há despesas neste período.</div>';}
+function homeView(){const balance=state.accounts.reduce((s,a)=>s+accountBalance(a),0);return `<section class="hero"><p>SALDO TOTAL DISPONÍVEL</p><h1>${money(balance)}</h1><small>${state.accounts.length} conta(s) cadastrada(s)</small><div class="hero-bottom"><div><span>Entradas do mês</span><strong>${money(monthIncome())}</strong></div><div><span>Gastos do mês</span><strong>${money(monthExpense())}</strong></div></div></section><div class="quick"><button data-new="income">＋ Receita</button><button data-new="expense">− Despesa</button><button data-tab="accounts">▤ Contas</button></div><section class="panel"><div class="panel-title"><h2>Meus gastos</h2><button data-tab="expenses">Ver detalhes →</button></div>${filters()}${categoryChart()}</section><section class="panel"><h2>Contas bancárias</h2>${accountList()}</section>`;}
+function filters(){return `<div class="filters"><label>Mês <input id="monthFilter" type="month" value="${state.month}"></label><label>Visualização <select id="viewFilter"><option value="purchase" ${state.view==='purchase'?'selected':''}>Compras realizadas</option><option value="installments" ${state.view==='installments'?'selected':''}>Parcelas por mês</option></select></label></div>`;}
+function expenseView(){return `<section class="panel"><h2>Meus gastos por categoria</h2>${filters()}<div class="big-number">${money(monthExpense())}</div><p class="muted">${monthTransactions().length} lançamento(s)</p>${categoryChart()}</section><section class="panel"><h2>Movimentações do mês</h2>${transactionList(monthTransactions())}</section>`;}
+function transactionList(list){return list.length?`<div class="transactions">${[...list].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(t=>`<div class="tx"><span class="tx-icon">${t.type==='income'?'↙':'↗'}</span><div class="tx-body"><strong>${esc(t.description)}</strong><small>${esc(t.date)} · ${esc(t.type==='income'?'Receita':catName(t.categoryId))} · ${esc(t.method||'')}</small></div><strong class="${t.type==='income'?'green':''}">${t.type==='income'?'+':'−'} ${money(t.amountCents)}</strong><button class="icon-button" data-edit-tx="${t.id}" aria-label="Editar">⋯</button></div>`).join('')}</div>`:'<div class="empty">Nenhum lançamento cadastrado.</div>';}
+function transactionsView(){return `<section class="panel"><div class="panel-title"><h2>Movimentações</h2><button data-new="expense">＋ Adicionar</button></div>${transactionList(state.transactions)}</section>`;}
+function accountList(){return state.accounts.length?state.accounts.map(a=>`<div class="account-line"><div><strong>${esc(a.name)}</strong><small>${esc(a.bank||'Conta bancária')}</small></div><strong>${money(accountBalance(a))}</strong><button class="icon-button" data-edit-account="${a.id}">⋯</button></div>`).join(''):'<div class="empty">Cadastre sua primeira conta para iniciar.</div>';}
+function accountsView(){return `<section class="panel"><div class="panel-title"><h2>Minhas contas</h2><button data-new="account">＋ Nova conta</button></div>${accountList()}</section><section class="panel"><div class="panel-title"><h2>Cartões de crédito</h2><button data-new="card">＋ Novo cartão</button></div>${state.cards.length?state.cards.map(c=>`<div class="account-line"><div><strong>${esc(c.name)}</strong><small>Fecha dia ${c.closingDay} · Vence dia ${c.dueDay}</small></div><button class="icon-button" data-edit-card="${c.id}">⋯</button></div>`).join(''):'<div class="empty">Nenhum cartão cadastrado.</div>'}</section><section class="panel"><div class="panel-title"><h2>Categorias</h2><button data-new="category">＋ Nova categoria</button></div>${state.categories.map(c=>`<div class="account-line"><div><span class="dot" style="background:${c.color}"></span> <strong>${esc(c.name)}</strong></div><button class="icon-button" data-edit-category="${c.id}">⋯</button></div>`).join('')}</section>`;}
+function render(){const app=document.querySelector('#app');if(!app)return;if(!state.accessGranted){app.innerHTML=`<div class="login"><div class="brand-icon">N</div><h1>Nexo</h1><p>Seu dinheiro, em perspectiva.</p><button class="primary" id="accountBtn">Entrar com minha conta</button><small>Seu login Firebase existente continua válido.</small></div>`;bind();return;}const tabs=[['home','Início','⌂'],['expenses','Gastos','▥'],['transactions','Extrato','⇄'],['accounts','Contas','▤']];app.innerHTML=`<header class="top"><div class="brand"><span class="brand-icon">N</span><div><strong>Nexo</strong><small>Controle financeiro</small></div></div>${syncBadge()}</header><main>${state.tab==='home'?homeView():state.tab==='expenses'?expenseView():state.tab==='transactions'?transactionsView():accountsView()}</main><nav class="bottom">${tabs.map(([key,label,icon])=>`<button data-tab="${key}" class="${state.tab===key?'selected':''}"><span>${icon}</span>${label}</button>`).join('')}</nav><button class="fab" data-new="expense" aria-label="Novo lançamento">＋</button>`;bind();}
+function bind(){document.querySelector('#accountBtn')?.addEventListener('click',accountModal);document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{state.tab=b.dataset.tab;render()});document.querySelectorAll('[data-new]').forEach(b=>b.onclick=()=>openForm(b.dataset.new));document.querySelectorAll('[data-edit-account]').forEach(b=>b.onclick=()=>openForm('account',b.dataset.editAccount));document.querySelectorAll('[data-edit-card]').forEach(b=>b.onclick=()=>openForm('card',b.dataset.editCard));document.querySelectorAll('[data-edit-category]').forEach(b=>b.onclick=()=>openForm('category',b.dataset.editCategory));document.querySelectorAll('[data-edit-tx]').forEach(b=>b.onclick=()=>openForm('transaction',b.dataset.editTx));document.querySelector('#monthFilter')?.addEventListener('change',e=>{state.month=e.target.value;render()});document.querySelector('#viewFilter')?.addEventListener('change',e=>{state.view=e.target.value;render()});document.querySelectorAll('[data-category-filter]').forEach(b=>b.onclick=()=>{state.tab='transactions';render();document.querySelector('.transactions')?.scrollIntoView({behavior:'smooth'});toast('Categoria: '+catName(b.dataset.categoryFilter))});}
+function field(label,name,value='',type='text',extra=''){return `<label>${label}<input name="${name}" type="${type}" value="${esc(value)}" ${extra}></label>`;}
+function select(label,name,options,value){return `<label>${label}<select name="${name}">${options.map(([id,title])=>`<option value="${esc(id)}" ${id===value?'selected':''}>${esc(title)}</option>`).join('')}</select></label>`;}
+function openForm(kind,id){const store=kind==='account'?'accounts':kind==='card'?'cards':kind==='category'?'categories':'transactions';const old=state[store].find(r=>r.id===id)||{};const isTx=store==='transactions';let content='';if(kind==='account'){content=field('Nome da conta','name',old.name,'text','required')+field('Banco','bank',old.bank)+field('Saldo inicial (R$)','opening',old.id?(old.openingCents/100).toFixed(2):'0.00','number','min="0" step="0.01" required')+field('Data de início','startDate',old.startDate||today(),'date','required');}else if(kind==='category'){content=field('Nome da categoria','name',old.name,'text','required')+field('Cor','color',old.color||'#3b82f6','color');}else if(kind==='card'){content=field('Nome do cartão','name',old.name,'text','required')+field('Limite (R$)','limit',old.id?(old.limitCents/100).toFixed(2):'0','number','min="0" step="0.01"')+field('Dia de fechamento','closingDay',old.closingDay||1,'number','min="1" max="28" required')+field('Dia do vencimento','dueDay',old.dueDay||10,'number','min="1" max="28" required');}else{const type=kind==='income'?'income':kind==='expense'?'expense':old.type||'expense';content=select('Tipo','type',[['expense','Despesa'],['income','Receita']],type)+field('Descrição','description',old.description,'text','required')+field('Valor (R$)','amount',old.id?(old.amountCents/100).toFixed(2):'','number','min="0.01" step="0.01" required')+field('Data da movimentação','date',old.date||today(),'date','required')+select('Situação','status',[['paid','Pago / recebido'],['pending','Pendente']],old.status||'paid')+select('Forma de pagamento','method',[['debit','Débito'],['pix','Pix'],['boleto','Boleto'],['cash','Dinheiro'],['credit','Crédito']],old.method||'pix')+select('Conta bancária','accountId',[['','Selecione uma conta'],...state.accounts.map(a=>[a.id,a.name])],old.accountId||'')+select('Cartão de crédito','cardId',[['','Nenhum'],...state.cards.map(c=>[c.id,c.name])],old.cardId||'')+select('Categoria','categoryId',[['','Sem categoria'],...state.categories.map(c=>[c.id,c.name])],old.categoryId||'')+field('Vencimento (opcional)','dueDate',old.dueDate||'','date');}
+const overlay=modalShell(`<form class="dialog"><div class="dialog-head"><h2>${id?'Editar':'Adicionar'} ${kind==='account'?'conta':kind==='card'?'cartão':kind==='category'?'categoria':'lançamento'}</h2><button type="button" class="close" aria-label="Fechar">×</button></div><div class="fields">${content}</div><div class="dialog-actions">${id?'<button type="button" class="danger" id="deleteRecord">Excluir</button>':''}<button class="primary" type="submit">Salvar</button></div></form>`);overlay.querySelector('.close').onclick=()=>overlay.remove();overlay.querySelector('#deleteRecord')?.addEventListener('click',async()=>{if(store==='accounts'&&state.transactions.some(t=>t.accountId===id)){alert('Esta conta possui movimentações. Não é possível excluí-la.');return}if(store==='categories'&&state.transactions.some(t=>t.categoryId===id)){alert('Reclassifique os lançamentos antes de excluir esta categoria.');return}if(store==='cards'&&state.transactions.some(t=>t.cardId===id)){alert('Este cartão possui compras vinculadas.');return}if(!confirm('Excluir este registro?'))return;await del(store,id);await refresh();overlay.remove()});overlay.querySelector('form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target),v=Object.fromEntries(f.entries());const record={...old,id:id||uid(),createdAt:old.createdAt||now(),updatedAt:now()};if(kind==='account'){if(!v.name.trim())return;Object.assign(record,{name:v.name.trim(),bank:v.bank.trim(),openingCents:cents(v.opening),startDate:v.startDate});}else if(kind==='category'){Object.assign(record,{name:v.name.trim(),color:v.color});}else if(kind==='card'){Object.assign(record,{name:v.name.trim(),limitCents:cents(v.limit),closingDay:Number(v.closingDay),dueDay:Number(v.dueDay)});}else{if(!state.accounts.length){alert('Cadastre uma conta bancária antes de registrar movimentações.');return}if(v.method==='credit'&&!v.cardId){alert('Selecione o cartão de crédito.');return}if(v.method!=='credit'&&!v.accountId){alert('Selecione a conta bancária.');return}Object.assign(record,{type:v.type,description:v.description.trim(),amountCents:cents(v.amount),date:v.date,status:v.status,method:v.method,accountId:v.accountId,cardId:v.method==='credit'?v.cardId:'',categoryId:v.categoryId,dueDate:v.dueDate});}await put(store,record);await refresh();overlay.remove();toast('Registro salvo.');};}
 function getFirebaseConfig() {
   return FIREBASE_CONFIG;
 }
 
 function loginForm() {
-  return `<div class="modal-head"><div><span class="eyebrow">ACESSO PESSOAL</span><h2>Entrar no MGP Daily</h2></div><button type="button" class="icon-btn subtle close">×</button></div>
+  return `<div class="modal-head"><div><span class="eyebrow">ACESSO PESSOAL</span><h2>Entrar no Nexo</h2></div><button type="button" class="icon-btn subtle close">×</button></div>
     <div class="cloud-explainer"><strong>Somente sua conta é aceita</strong><span>O Firebase e o UID autorizado já estão configurados nesta versão.</span></div>
     <label>E-mail<input name="email" type="email" required autocomplete="email" placeholder="seu@email.com"></label>
     <label>Senha<input name="password" type="password" required minlength="6" autocomplete="current-password" placeholder="Mínimo 6 caracteres"></label>
@@ -743,9 +97,7 @@ function accountModal() {
         await cloud.api.signOut(cloud.auth);
         localStorage.removeItem(VERIFIED_UID_KEY);
         state.accessGranted = false;
-        await clearLocal('tasks');
-        await clearLocal('materials');
-        await clearLocal('purchaseItems');
+        for (const store of STORES) await clearLocal(store);
         await clearLocal('syncQueue');
         await refresh();
         el.remove();
@@ -817,7 +169,7 @@ async function initFirebase() {
 
     cloud.api = { ...appModule, ...authModule, ...firestoreModule };
     const firebaseAppConfig = config;
-    cloud.app = appModule.initializeApp(firebaseAppConfig, 'mgp-daily');
+    cloud.app = appModule.initializeApp(firebaseAppConfig, 'nexo');
     cloud.auth = authModule.getAuth(cloud.app);
     await authModule.setPersistence(cloud.auth, authModule.browserLocalPersistence);
 
@@ -847,7 +199,7 @@ async function initFirebase() {
         state.syncMessage = 'Conta não autorizada para este aplicativo.';
         await authModule.signOut(cloud.auth);
         render();
-        alert('Acesso negado. Esta conta não é a conta autorizada do MGP Daily.');
+        alert('Acesso negado. Esta conta não é a conta autorizada do Nexo.');
         return;
       }
 
@@ -880,12 +232,8 @@ async function initFirebase() {
 }
 
 function stopCloudListeners() {
-  cloud.unsubscribeTasks?.();
-  cloud.unsubscribeMaterials?.();
-  cloud.unsubscribePurchaseItems?.();
-  cloud.unsubscribeTasks = null;
-  cloud.unsubscribeMaterials = null;
-  cloud.unsubscribePurchaseItems = null;
+  for(const unsub of cloud.unsubscribers) unsub();
+  cloud.unsubscribers = [];
 }
 
 function userCollection(store) {
@@ -901,7 +249,7 @@ async function mergeCloudAndLocal() {
   const pending = await all('syncQueue');
   const pendingDeletes = new Set(pending.filter((op) => op.type === 'delete').map((op) => `${op.store}:${op.recordId}`));
 
-  for (const store of ['tasks', 'materials', 'purchaseItems']) {
+  for (const store of ['accounts', 'categories', 'transactions', 'cards']) {
     const localRecords = await all(store);
     const localMap = new Map(localRecords.map((record) => [record.id, record]));
     const snapshot = await cloud.api.getDocs(userCollection(store));
@@ -997,29 +345,16 @@ async function replaceCloudCollection(store, records) {
 function startCloudListeners() {
   if (!cloud.initialized || !state.user) return;
   stopCloudListeners();
-  cloud.unsubscribeTasks = cloud.api.onSnapshot(userCollection('tasks'), async (snapshot) => {
-    for (const change of snapshot.docChanges()) {
-      if (change.type === 'removed') await delLocal('tasks', change.doc.id);
-      else await putLocal('tasks', { ...change.doc.data(), id: change.doc.id });
-    }
-    await refresh();
-  }, (error) => console.error('tasks listener', error));
-
-  cloud.unsubscribeMaterials = cloud.api.onSnapshot(userCollection('materials'), async (snapshot) => {
-    for (const change of snapshot.docChanges()) {
-      if (change.type === 'removed') await delLocal('materials', change.doc.id);
-      else await putLocal('materials', { ...change.doc.data(), id: change.doc.id });
-    }
-    await refresh();
-  }, (error) => console.error('materials listener', error));
-
-  cloud.unsubscribePurchaseItems = cloud.api.onSnapshot(userCollection('purchaseItems'), async (snapshot) => {
-    for (const change of snapshot.docChanges()) {
-      if (change.type === 'removed') await delLocal('purchaseItems', change.doc.id);
-      else await putLocal('purchaseItems', { ...change.doc.data(), id: change.doc.id });
-    }
-    await refresh();
-  }, (error) => console.error('purchaseItems listener', error));
+  for (const store of STORES) {
+    const unsub = cloud.api.onSnapshot(userCollection(store), async snapshot => {
+      for (const change of snapshot.docChanges()) {
+        if (change.type === 'removed') await delLocal(store,change.doc.id);
+        else await putLocal(store,{...change.doc.data(),id:change.doc.id});
+      }
+      await refresh();
+    },error=>{console.error('listener',store,error);state.syncStatus='error';render();});
+    cloud.unsubscribers.push(unsub);
+  }
 }
 
 async function warmFirebaseCache() {
@@ -1030,7 +365,7 @@ async function warmFirebaseCache() {
     `https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-firestore.js`,
   ];
   try {
-    const cache = await caches.open(`mgp-daily-firebase-${FIREBASE_VERSION}`);
+    const cache = await caches.open(`nexo-firebase-${FIREBASE_VERSION}`);
     await Promise.all(urls.map(async (url) => {
       const response = await fetch(url, { mode: 'cors' });
       if (response.ok) await cache.put(url, response.clone());
@@ -1066,6 +401,7 @@ if ('serviceWorker' in navigator) {
   state.firebaseConfigured = Boolean(config);
   const verifiedUid = localStorage.getItem(VERIFIED_UID_KEY);
   state.accessGranted = Boolean(!navigator.onLine && verifiedUid === AUTHORIZED_UID);
+  if (!(await all('categories')).length) { for (const [name,color] of defaultCategories) await put('categories',{id:uid(),name,color,createdAt:now(),updatedAt:now()}); }
   await refresh();
   initFirebase();
 })();
