@@ -4,3 +4,7 @@
 /* Valores financeiros: receitas em verde, despesas em vermelho. */
 .amount-income{color:#00b981!important;font-weight:750}
 .amount-expense{color:#ef5966!important;font-weight:750}
+
+/* Contas mensais: visão compacta e adaptável. */
+.recurring-panel{grid-column:1/-1}.recurring-panel .tx{min-width:0}.recurring-panel .tx-body small{line-height:1.5}.recurring-panel .muted{font-size:13px}.bottom button{min-width:0}.filters{margin-bottom:16px}
+@media(max-width:440px){.boleto-summary{grid-template-columns:1fr 1fr}.boleto-summary>div:first-child{grid-column:1/-1}.tx{gap:6px}.tx .icon-button{padding:7px}.tx>strong{font-size:12px}}
