@@ -1,5 +1,5 @@
 const APP_VERSION = '1.0.0';
-const AUTHORIZED_UID = 'r7phpAeSu2TKzettmItVRC6qZ6j2';
+const AUTHORIZED_UID = Ykt4W9Kv3UbBKzba0GH3ziMQzOA3;
 const FIREBASE_VERSION = '12.17.1';
 const FIREBASE_CONFIG = {
   apiKey: 'AIzaSyD641XWCUceDF02Dv1TSlumZV2s4XB81ms',
