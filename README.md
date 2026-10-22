@@ -1,7 +1,11 @@
-# Nexo v1.3.1 — Correção de edição de dívidas recorrentes
+# Nexo v1.3.2 — Categorias personalizadas
 
-Correção: cada série mensal terá no máximo uma ocorrência por competência. A edição preserva o ID da ocorrência e sua competência original, mesmo se o vencimento for alterado. Ocorrências canceladas bloqueiam a projeção automática correspondente. Também evita envio duplicado por duplo clique em Salvar.
+Análise: as nove categorias predefinidas eram criadas automaticamente na inicialização quando a base local estava vazia. A edição de lançamentos dependia de IDs de categoria, portanto apagar categorias utilizadas quebraria o histórico.
 
-**Não apaga nem mescla automaticamente dívidas já duplicadas na nuvem.** Faça backup e revise duplicatas preexistentes manualmente. Firebase, UID, coleções, ícones e estrutura de dados permanecem inalterados.
+Mudanças:
+- Desativada a criação automática de categorias padrão.
+- Cadastro de categoria (nome e cor) diretamente no formulário de dívida/despesa/receita; nomes existentes são reutilizados, sem duplicar.
+- Botão em Contas > Categorias para remover categorias padrão **não utilizadas**. As que já possuem lançamentos são preservadas para não corromper o histórico; podem ser renomeadas ou os lançamentos reclassificados antes da exclusão.
+- Nenhuma alteração no Firebase, UID ou formato dos lançamentos.
 
-Instalação: backup da pasta C:\MGP\mgp-daily; copiar arquivos para a raiz do repositório preservando .git; GitHub Desktop commit/push. Testar em navegador e confirmar sincronização antes de excluir qualquer lançamento.
+Instalação: faça backup do projeto, substitua arquivos na raiz do repositório mantendo .git, publique pelo GitHub Desktop. Teste online/offline e sincronização. Não há migração destrutiva automática.
