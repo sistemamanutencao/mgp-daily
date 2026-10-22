@@ -1,4 +1,4 @@
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.5.1';
 const AUTHORIZED_UID = 'Ykt4W9Kv3UbBKzba0GH3ziMQzOA3';
 const FIREBASE_VERSION = '12.17.1';
 const FIREBASE_CONFIG = {
