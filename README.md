@@ -1,17 +1,21 @@
-# Nexo v1.4.0 — Simplificação de telas e reinício de dados
+# Nexo v1.5.0 — Revisão de código e categorias
 
-## Análise prévia
-O app separava boletos em painéis próprios, apesar de o cadastro mensal já admitir forma de pagamento boleto. Cartões possuíam vínculos em lançamentos; remover toda a lógica de cartões quebraria registros existentes. Categorias em uso eram protegidas por uma regra que impedia sua exclusão. O armazenamento local é IndexedDB e sincroniza com Firebase Firestore; limpar apenas o dispositivo permite reimportação dos registros remotos.
+## Diagnóstico
+As categorias exibidas na versão anterior já estavam gravadas no IndexedDB e/ou no Firestore. Remover a criação automática do código não elimina registros persistidos. Também havia trechos órfãos do antigo gerenciamento de cartões e da sincronização `replaceAll`.
 
-## Mudanças
-- Início: removido atalho de novo boleto e painel Boletos do mês.
-- Gastos: removido painel Boletos do mês.
-- Contas: removido painel Cartões de crédito, mantendo compatibilidade interna com dados antigos e formas de pagamento.
-- Categorias: removido botão de limpeza de padrões; botão Nova categoria preservado. Excluir categoria em uso agora desassocia os lançamentos, sem apagá-los.
-- Contas > Dados do aplicativo: opção explícita de apagar todos os dados financeiros deste usuário do Firestore e IndexedDB, com conexão obrigatória e confirmação digitada `APAGAR TUDO`. Preserva Firebase, login e UID. A operação é irreversível e não é executada automaticamente na instalação.
+## Modificações
+- Sem categorias padrão no código e sem recriação automática.
+- Nova opção **Contas > Categorias > Limpar categorias existentes**: exclui todas as categorias da nuvem e do dispositivo mediante confirmação, preservando os lançamentos e desvinculando suas categorias. É uma ação separada e voluntária, não executada ao instalar.
+- Mantidos **Nova categoria** e **Criar categoria agora** ao cadastrar uma dívida.
+- Retirados formulário e listeners de edição de cartões, opção de crédito do cadastro de novas despesas, cálculo morto de cartão e ramo `replaceAll` sem produtor na fila.
+- Coleção `cards` mantida no mecanismo de sincronização apenas para compatibilidade com dados legados e para permitir limpeza completa na opção existente **Apagar todos os dados financeiros**.
+- Firebase, UID, saldos, recorrências e login mantidos.
 
-## Limitações e testes
-Verificada sintaxe JS, integridade ZIP e presença/ausência dos elementos relevantes no código. Não foi realizado teste em navegador autenticado ou com Firestore real. Se a limpeza falhar parcialmente, verifique a sincronização antes de registrar novos dados. Faça backup antes de atualizar.
+## Testes e limitações
+- `node --check app.js`: aprovado.
+- ZIP: verificação de integridade.
+- Inspeção estática de referências e telas.
+- Não foi possível executar testes autenticados em Firestore nem testes end-to-end de navegador neste ambiente. Recomenda-se testar primeiro a limpeza das categorias, depois criar uma nova categoria em uma despesa e confirmar sincronização.
 
-## Publicação
-Copie o conteúdo da pasta `nexo-v1.4.0` para a raiz do projeto preservando `.git`, commit e push pelo GitHub Desktop. Atualize o PWA.
+## Instalação
+Faça backup da pasta `C:\MGP\mgp-daily`, substitua os arquivos sem excluir `.git`, publique com GitHub Desktop. Após atualizar, entre em **Contas > Categorias** e execute **Limpar categorias existentes** para retirar os registros já persistidos. O aplicativo não executará exclusão automática.
