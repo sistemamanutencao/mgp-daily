@@ -48,3 +48,42 @@ body{background-color:#061a34;background-image:radial-gradient(ellipse 70% 55% a
 .bank-itau{background:linear-gradient(180deg,#ffca69 0%,#ff8a00 42%,#d65a00 100%)}
 .bank-other{background:linear-gradient(180deg,#9eafc6,#536a89)}
 @media(max-width:440px){.bank-balance-heading{flex-wrap:wrap}.bank-balance-heading strong{margin-left:auto}}
+
+/* Nexo 1.8.0: lembretes em cartões pastel coloridos, como na prévia aprovada. */
+.notes-panel .panel-title h2{margin-bottom:12px}
+.notes-list{gap:10px;margin-top:14px}
+.notes-panel .note-line{border:0;border-radius:13px;padding:14px 15px;align-items:center;box-shadow:inset 0 1px rgba(255,255,255,.65);transition:transform .15s ease}
+.notes-panel .note-line:hover{transform:translateY(-1px)}
+.note-content{flex:1;min-width:0}
+.notes-panel .note-line strong{color:#1a2a43;font-size:14px}
+.notes-panel .note-line p{color:#34435a;line-height:1.5;font-size:13px}
+.notes-panel .note-actions button{background:rgba(255,255,255,.55);color:#304766;border:1px solid rgba(37,65,98,.08);padding:7px 9px;font-size:12px}
+.note-amarelo{background:linear-gradient(115deg,#fff3d9,#fff9e9)}
+.note-azul{background:linear-gradient(115deg,#e0eeff,#eff6ff)}
+.note-rosa{background:linear-gradient(115deg,#ffe2e8,#fff1f4)}
+.note-verde{background:linear-gradient(115deg,#ddf8e9,#eefcf3)}
+.note-lilas{background:linear-gradient(115deg,#eee5ff,#f7f2ff)}
+.note-cinza{background:linear-gradient(115deg,#e9eef4,#f4f6fa)}
+.note-color-field{border:0;padding:0;margin:2px 0 0;min-width:0}
+.note-color-field legend{color:#64748b;font-size:13px;margin-bottom:9px}
+.note-color-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.note-color-choice{display:flex!important;align-items:center;justify-content:center;cursor:pointer;border:2px solid transparent;border-radius:11px;padding:10px 5px;font-size:12px;color:#243c5b!important;min-height:43px;position:relative}
+.note-color-choice input{position:absolute;opacity:0;width:1px!important;height:1px;pointer-events:none}
+.note-color-choice:has(input:checked){border-color:#2460c6;box-shadow:0 0 0 1px #2460c622}
+.note-color-choice:focus-within{outline:2px solid #2460c6;outline-offset:2px}
+@media(max-width:460px){.notes-panel .note-line{flex-wrap:nowrap}.notes-panel .note-actions{margin-left:0;flex-shrink:0}.notes-panel .note-actions button{padding:6px}.note-color-options{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Nexo v1.9.0: rich-text notes, without allowing arbitrary HTML styles. */
+.notes-panel .note-body{white-space:normal;overflow-wrap:anywhere;color:#34435a;line-height:1.5;font-size:13px;margin-top:5px}
+.notes-panel .note-body p,.notes-panel .note-body div{margin:3px 0}
+.notes-panel .note-body ul,.notes-panel .note-body ol{padding-left:21px;margin:6px 0}
+.note-editor-group{display:flex;flex-direction:column;gap:7px;min-width:0}
+.note-editor-group>label{font-size:13px;color:#34435a}
+.note-toolbar{display:flex;gap:5px;flex-wrap:wrap;background:#eef3fb;border:1px solid #dbe5f1;padding:6px;border-radius:11px}
+.note-toolbar button{min-width:38px;height:36px;border:1px solid #d4dfed;background:white;border-radius:8px;color:#183e71;cursor:pointer}
+.note-toolbar button:focus-visible{outline:2px solid #2460c6}
+.note-editor{min-height:135px;max-height:340px;overflow:auto;border:1px solid #dce4ef;border-radius:10px;padding:12px;background:#fff;color:#142842;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}
+.note-editor:focus{outline:2px solid #2460c6;outline-offset:1px}
+.note-editor:empty:before{content:attr(data-placeholder);color:#8b99ad;pointer-events:none}
+.note-editor ul,.note-editor ol{padding-left:22px}
+.note-editor-hint{color:#64748b;font-size:11px}

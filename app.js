@@ -1,4 +1,4 @@
-const APP_VERSION = '1.7.0';
+const APP_VERSION = '1.9.0';
 const AUTHORIZED_UID = 'Ykt4W9Kv3UbBKzba0GH3ziMQzOA3';
 const FIREBASE_VERSION = '12.17.1';
 const FIREBASE_CONFIG = {
@@ -109,15 +109,40 @@ function bankBalanceChart(){
   const max=Math.max(1,...accounts.map(x=>Math.max(0,x.balance)));
   return `<div class="bank-balances"><h3>Saldos por conta</h3><p class="muted">Comparação dos saldos disponíveis. Valores negativos são identificados sem barra positiva.</p>${accounts.map(({a,balance,bank})=>`<div class="bank-balance-row"><div class="bank-balance-heading">${bankLogo(a.bank)}<span>${esc(a.name)} <small>· ${esc(bank?.[1]||a.bank||'Banco')}</small></span><strong>${money(balance)}</strong></div><div class="bank-balance-track"><div class="bank-balance-fill ${bank?'bank-'+bank[0]:'bank-other'}" style="width:${balance>0?Math.max(2,balance/max*100):0}%"></div></div></div>`).join('')}</div>`;
 }
+const NOTE_COLORS=[['amarelo','Amarelo'],['azul','Azul'],['rosa','Rosa'],['verde','Verde'],['lilas','Lilás'],['cinza','Cinza']];
+function noteColor(value){return NOTE_COLORS.some(([key])=>key===value)?value:'amarelo';}
+// Restrict note formatting to a small, safe HTML subset; no event handlers, links or inline styles.
+function safeNoteHtml(html){
+ const template=document.createElement('template');template.innerHTML=String(html||'');
+ const allowed=new Set(['B','STRONG','I','EM','U','S','STRIKE','DIV','P','BR','UL','OL','LI']);
+ function clean(node){
+  if(node.nodeType===Node.TEXT_NODE)return document.createTextNode(node.textContent);
+  if(node.nodeType!==Node.ELEMENT_NODE)return document.createDocumentFragment();
+  const tag=node.tagName;const out=allowed.has(tag)?document.createElement(tag.toLowerCase()):document.createDocumentFragment();
+  for(const child of [...node.childNodes])out.appendChild(clean(child));
+  return out;
+ }
+ const result=document.createElement('div');for(const child of [...template.content.childNodes])result.appendChild(clean(child));
+ return result.innerHTML;
+}
+function noteBodyHtml(n){return n.bodyHtml?safeNoteHtml(n.bodyHtml):esc(n.body||'').replace(/\n/g,'<br>');}
 function notesPanel(){
  const items=[...state.notes].sort((a,b)=>String(b.updatedAt||'').localeCompare(String(a.updatedAt||'')));
- return `<section class="panel notes-panel"><div class="panel-title"><h2>Bloco de notas</h2><button data-add-note>＋ Nova anotação</button></div><p class="muted">Lembretes de tarefas e compras, independentes das contas e dos gastos.</p>${items.length?`<div class="notes-list">${items.map(n=>`<div class="note-line"><div><strong>${esc(n.title||'Anotação')}</strong><p>${esc(n.body||'')}</p></div><div class="note-actions"><button data-edit-note="${esc(n.id)}" aria-label="Editar anotação">Editar</button><button data-delete-note="${esc(n.id)}" aria-label="Excluir anotação">×</button></div></div>`).join('')}</div>`:'<div class="empty">Nenhuma anotação ainda.</div>'}</section>`;
+ return `<section class="panel notes-panel"><div class="panel-title"><h2>Minhas anotações</h2><button data-add-note aria-label="Nova anotação">＋ Nova anotação</button></div><p class="muted">Seus lembretes, tarefas e compras em destaque.</p>${items.length?`<div class="notes-list">${items.map((n,i)=>`<article class="note-line note-${noteColor(n.color||NOTE_COLORS[i%NOTE_COLORS.length][0])}"><div class="note-content"><strong>${esc(n.title||'Anotação')}</strong><div class="note-body">${noteBodyHtml(n)}</div></div><div class="note-actions"><button data-edit-note="${esc(n.id)}" aria-label="Editar anotação">Editar</button><button data-delete-note="${esc(n.id)}" aria-label="Excluir anotação">×</button></div></article>`).join('')}</div>`:'<div class="empty">Nenhuma anotação ainda. Toque em Nova anotação para começar.</div>'}</section>`;
 }
 function openNote(id){
  const old=state.notes.find(n=>n.id===id)||{};
- const overlay=modalShell(`<form class="dialog"><div class="dialog-head"><h2>${id?'Editar':'Nova'} anotação</h2><button type="button" class="close">×</button></div><div class="fields"><label>Título<input name="title" maxlength="100" value="${esc(old.title||'')}" required></label><label>O que precisa lembrar?<textarea name="body" rows="6" maxlength="3000" required>${esc(old.body||'')}</textarea></label></div><div class="dialog-actions"><button class="primary" type="submit">Salvar</button></div></form>`);
+ const color=noteColor(old.color||NOTE_COLORS[state.notes.length%NOTE_COLORS.length][0]);
+ const overlay=modalShell(`<form class="dialog"><div class="dialog-head"><h2>${id?'Editar':'Nova'} anotação</h2><button type="button" class="close">×</button></div><div class="fields"><label>Título<input name="title" maxlength="100" value="${esc(old.title||'')}" required></label><div class="note-editor-group"><label id="note-editor-label">O que precisa lembrar?</label><div class="note-toolbar" role="toolbar" aria-label="Formatação da anotação"><button type="button" data-format="bold" title="Negrito" aria-label="Negrito"><b>N</b></button><button type="button" data-format="italic" title="Itálico" aria-label="Itálico"><i>I</i></button><button type="button" data-format="underline" title="Sublinhado" aria-label="Sublinhado"><u>S</u></button><button type="button" data-format="insertUnorderedList" title="Lista" aria-label="Lista">☷</button><button type="button" data-format="removeFormat" title="Limpar formatação" aria-label="Limpar formatação">Tx</button></div><div class="note-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="note-editor-label" data-placeholder="Escreva sua anotação aqui..."></div><small class="note-editor-hint">Selecione um trecho e escolha a formatação. Também é possível usar Ctrl+B e Ctrl+I.</small></div><fieldset class="note-color-field"><legend>Cor de fundo</legend><div class="note-color-options">${NOTE_COLORS.map(([key,label])=>`<label class="note-color-choice note-${key}" title="${label}"><input type="radio" name="color" value="${key}" ${color===key?'checked':''}><span>${label}</span></label>`).join('')}</div></fieldset></div><div class="dialog-actions"><button class="primary" type="submit">Salvar</button></div></form>`);
  overlay.querySelector('.close').onclick=()=>overlay.remove();
- overlay.querySelector('form').onsubmit=async e=>{e.preventDefault();if(e.currentTarget.dataset.saving)return;e.currentTarget.dataset.saving='true';const f=new FormData(e.currentTarget);try{await put('notes',{...old,id:old.id||uid(),title:String(f.get('title')).trim(),body:String(f.get('body')).trim(),createdAt:old.createdAt||now(),updatedAt:now()});await refresh();overlay.remove();toast('Anotação salva.');}catch(error){console.error(error);alert('Não foi possível salvar a anotação.');e.currentTarget.dataset.saving='';}};
+ const editor=overlay.querySelector('.note-editor');
+ editor.innerHTML=noteBodyHtml(old);
+ overlay.querySelectorAll('[data-format]').forEach(button=>{
+  button.addEventListener('mousedown',e=>e.preventDefault());
+  button.addEventListener('click',()=>{editor.focus();document.execCommand(button.dataset.format,false,null);});
+ });
+ editor.addEventListener('paste',e=>{e.preventDefault();const plain=e.clipboardData.getData('text/plain');document.execCommand('insertText',false,plain);});
+ overlay.querySelector('form').onsubmit=async e=>{e.preventDefault();if(e.currentTarget.dataset.saving)return;e.currentTarget.dataset.saving='true';const f=new FormData(e.currentTarget);const body=editor.innerText.trim();if(!body){alert('Escreva uma anotação.');e.currentTarget.dataset.saving='';return;}if(body.length>3000){alert('A anotação deve ter até 3000 caracteres.');e.currentTarget.dataset.saving='';return;}try{await put('notes',{...old,id:old.id||uid(),title:String(f.get('title')).trim(),body,bodyHtml:safeNoteHtml(editor.innerHTML),color:noteColor(f.get('color')),createdAt:old.createdAt||now(),updatedAt:now()});await refresh();overlay.remove();toast('Anotação salva.');}catch(error){console.error(error);alert('Não foi possível salvar a anotação.');e.currentTarget.dataset.saving='';}};
 }
 
 function accountList(){return state.accounts.length?state.accounts.map(a=>`<div class="account-line">${bankLogo(a.bank)}<div><strong>${esc(a.name)}</strong><small>${esc(bankInfo(a.bank)?.[1]||a.bank||'Conta bancária')}</small></div><strong>${money(accountBalance(a))}</strong><button class="icon-button" data-edit-account="${a.id}">⋯</button></div>`).join(''):'<div class="empty">Cadastre sua primeira conta para iniciar.</div>';}
