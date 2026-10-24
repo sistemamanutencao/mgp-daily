@@ -1,7 +1,10 @@
-Nexo v1.5.1 — Fundo azul-escuro metálico
+# Nexo 1.7.0 — Ícones bancários e gráfico de saldos
 
-Alteração exclusivamente visual: cor e gradientes no fundo da página (body). Cards brancos, formulários, cálculos, autenticação e Firebase permanecem sem alterações funcionais.
+- Cinco ícones recortados das imagens enviadas pelo usuário, armazenados localmente em `assets/banks/` para funcionamento offline. Recortes têm origem em capturas de tela e podem ter artefatos de compressão.
+- Exibição uniforme e sem bordas extras nas contas.
+- Nome Caixa abreviado, com compatibilidade de leitura para contas antigas que guardam Caixa Econômica Federal.
+- Novo gráfico de barras de saldo por conta, com degradês metálicos das cores dos bancos. Não altera o gráfico de despesas por categoria.
+- Barras mostram somente valores positivos; saldos negativos aparecem numericamente. Sem mutações de dados ou mudanças nas regras financeiras, Firebase, autenticação ou esquema IndexedDB.
+- Cache do service worker atualizado e ícones incluídos no pré-cache.
 
-Publicação: faça backup, substitua os arquivos da raiz mantendo .git, commit e push. Verifique a aparência em desktop e celular.
-
-Verificações: sintaxe do JavaScript, arquivos do ZIP, atualização da versão do cache. Sem teste visual autenticado em navegador.
+Validação: verificação de sintaxe JavaScript e service worker, integridade ZIP, referências a imagens e verificação estática de regras de negócio. Não foi realizado teste com login Firebase real.
